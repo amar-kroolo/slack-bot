@@ -60,8 +60,20 @@ class ConnectToolsHandler {
       const externalUserId = userEmail || slackUserId;
       console.log('🔗 Creating Pipedream Connect tokens for external user:', externalUserId);
 
-      // Create tokens for popular tools
-      const tools = ['google_drive', 'gmail', 'github', 'notion', 'airtable'];
+      // Create tokens for all available tools (updated list)
+      const tools = [
+        'google_drive',
+        'dropbox',
+        'jira',
+        'confluence',
+        'microsoft_teams',
+        'microsoft_sharepoint',
+        'document_360',
+        'gmail',
+        'github',
+        'notion',
+        'airtable'
+      ];
       const toolUrls = {};
 
       console.log('🔍 TOKEN STEP 1: Attempting to create Pipedream tokens...');
@@ -321,7 +333,11 @@ class ConnectToolsHandler {
 
     // Create working URLs with demo token
     const demoUrls = {};
-    const allTools = ['google_drive', 'gmail', 'github', 'notion', 'airtable', 'slack'];
+    const allTools = [
+      'google_drive', 'dropbox', 'jira', 'confluence',
+      'microsoft_teams', 'microsoft_sharepoint', 'document_360',
+      'gmail', 'github', 'notion', 'airtable'
+    ];
 
     console.log('🎯 DEMO STEP 3: Creating URLs for all tools...');
     for (const tool of allTools) {
@@ -609,19 +625,19 @@ class ConnectToolsHandler {
     };
   }
 
-  // Show tool selection interface with direct URLs (no buttons needed)
+  // Show clean tool selection interface (no copy-paste URLs)
   showToolSelectionWithUrls(slackUserId, userEmail = null, toolUrls = {}, tokenData = null) {
-    console.log('🔧 Showing tool selection with direct URLs for user:', slackUserId);
+    console.log('🔧 Showing clean tool selection interface for user:', slackUserId);
     console.log('📧 User email:', userEmail || 'Not available');
-    console.log('🔗 Generated URLs:', Object.keys(toolUrls));
+    console.log('🔗 Generated URLs for tools:', Object.keys(toolUrls).length);
 
     return {
       response_type: 'ephemeral',
-      text: '🛠️ Connect your tools for enhanced search',
+      text: '🛠️ Connect Your Tools',
       attachments: [{
         color: 'good',
-        title: '🔗 Popular Tools - Click to Connect',
-        text: 'Click any link below to connect that tool:',
+        title: '🔗 Primary Tools',
+        text: 'Click to connect your most used tools:',
         actions: [
           {
             type: 'button',
@@ -637,15 +653,63 @@ class ConnectToolsHandler {
           },
           {
             type: 'button',
+            text: '📦 Dropbox',
+            url: toolUrls.dropbox,
+            style: 'default'
+          }
+        ]
+      }, {
+        color: '#36a64f',
+        title: '🏢 Enterprise Tools',
+        text: 'Connect your business and collaboration tools:',
+        actions: [
+          {
+            type: 'button',
+            text: '🎯 Jira',
+            url: toolUrls.jira,
+            style: 'default'
+          },
+          {
+            type: 'button',
+            text: '📖 Confluence',
+            url: toolUrls.confluence,
+            style: 'default'
+          },
+          {
+            type: 'button',
+            text: '💬 Microsoft Teams',
+            url: toolUrls.microsoft_teams,
+            style: 'default'
+          }
+        ]
+      }, {
+        color: '#0078d4',
+        title: '📊 Microsoft & Documentation',
+        text: 'Connect Microsoft services and documentation tools:',
+        actions: [
+          {
+            type: 'button',
+            text: '📋 SharePoint',
+            url: toolUrls.microsoft_sharepoint,
+            style: 'default'
+          },
+          {
+            type: 'button',
+            text: '📚 Document 360',
+            url: toolUrls.document_360,
+            style: 'default'
+          },
+          {
+            type: 'button',
             text: '🐙 GitHub',
             url: toolUrls.github,
             style: 'default'
           }
         ]
       }, {
-        color: '#36a64f',
-        title: '💡 More Tools Available',
-        text: 'Additional tools you can connect:',
+        color: '#4A154B',
+        title: '🎨 Productivity Tools',
+        text: 'Connect additional productivity and note-taking tools:',
         actions: [
           {
             type: 'button',
@@ -661,49 +725,11 @@ class ConnectToolsHandler {
           },
           {
             type: 'button',
-            text: '🚀 Connect Any Tool',
+            text: '🚀 Browse All Tools',
             url: toolUrls.any_tool,
             style: 'primary'
           }
         ]
-      }, {
-        color: '#4A154B',
-        title: '💬 Slack Apps',
-        text: 'Connect Slack-specific apps:',
-        fields: [
-          {
-            title: '📁 Slack Files',
-            value: 'Access and search your Slack files',
-            short: true
-          },
-          {
-            title: '📢 Slack Channels',
-            value: 'Search across your Slack channels',
-            short: true
-          }
-        ]
-      }, {
-        color: 'warning',
-        title: '📋 Direct URLs (Copy if needed)',
-        text: 'You can also copy these URLs directly:',
-        fields: [
-          {
-            title: '📁 Google Drive',
-            value: toolUrls.google_drive,
-            short: false
-          },
-          {
-            title: '📧 Gmail',
-            value: toolUrls.gmail,
-            short: false
-          },
-          {
-            title: '🐙 GitHub',
-            value: toolUrls.github,
-            short: false
-          }
-        ],
-        footer: tokenData ? `🔒 Token expires: ${new Date(tokenData.expires_at).toLocaleString()} (${Math.round((new Date(tokenData.expires_at) - new Date()) / 1000 / 60)} min)` : 'Token info not available'
       }]
     };
   }
@@ -811,13 +837,35 @@ class ConnectToolsHandler {
   parseConnectToolsCommand(query) {
     const normalizedQuery = query.toLowerCase().trim();
 
-    // Direct tool connections
+    // Direct tool connections - Primary tools
     if (normalizedQuery.includes('connect google drive') || normalizedQuery.includes('google drive connect')) {
       return { command: 'direct_tool', type: 'google_drive' };
     }
     if (normalizedQuery.includes('connect gmail') || normalizedQuery.includes('gmail connect')) {
       return { command: 'direct_tool', type: 'gmail' };
     }
+    if (normalizedQuery.includes('connect dropbox') || normalizedQuery.includes('dropbox connect')) {
+      return { command: 'direct_tool', type: 'dropbox' };
+    }
+
+    // Enterprise tools
+    if (normalizedQuery.includes('connect jira') || normalizedQuery.includes('jira connect')) {
+      return { command: 'direct_tool', type: 'jira' };
+    }
+    if (normalizedQuery.includes('connect confluence') || normalizedQuery.includes('confluence connect')) {
+      return { command: 'direct_tool', type: 'confluence' };
+    }
+    if (normalizedQuery.includes('connect microsoft teams') || normalizedQuery.includes('teams connect') || normalizedQuery.includes('microsoft teams connect')) {
+      return { command: 'direct_tool', type: 'microsoft_teams' };
+    }
+    if (normalizedQuery.includes('connect sharepoint') || normalizedQuery.includes('sharepoint connect') || normalizedQuery.includes('microsoft sharepoint')) {
+      return { command: 'direct_tool', type: 'microsoft_sharepoint' };
+    }
+    if (normalizedQuery.includes('connect document 360') || normalizedQuery.includes('document 360 connect') || normalizedQuery.includes('document360')) {
+      return { command: 'direct_tool', type: 'document_360' };
+    }
+
+    // Development and productivity tools
     if (normalizedQuery.includes('connect github') || normalizedQuery.includes('github connect')) {
       return { command: 'direct_tool', type: 'github' };
     }
