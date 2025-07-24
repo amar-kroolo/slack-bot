@@ -49,6 +49,12 @@ class QueryHandler {
         };
       }
 
+      // Check if this is a general query response
+      if (parsedQuery.message) {
+        console.log('💬 STEP 1 RESULT: General query detected, providing helpful response');
+        return this.createHelpfulGeneralResponse(query, userContext);
+      }
+
       console.log('✅ STEP 1 SUCCESS: Query parsed successfully');
       console.log('🎯 Selected API:', parsedQuery.api);
       console.log('📋 Extracted Parameters:', JSON.stringify(parsedQuery.parameters, null, 2));
@@ -183,6 +189,102 @@ class QueryHandler {
     }
 
     return nlpResult;
+  }
+
+  // Create helpful response for general queries
+  createHelpfulGeneralResponse(query, userContext = null) {
+    console.log('🎯 Creating helpful response for general query:', query);
+
+    const userName = userContext?.slackRealName || userContext?.slackName || 'there';
+
+    return {
+      response_type: 'ephemeral',
+      text: `👋 Hi ${userName}! I'm your Enterprise Search Assistant`,
+      attachments: [{
+        color: 'good',
+        title: '🔍 What I Can Help You With',
+        text: 'I can help you search and find information across your connected tools:',
+        fields: [
+          {
+            title: '📊 Search Commands',
+            value: '• "search for project reports"\n• "find documents about marketing"\n• "show me files from last week"',
+            short: true
+          },
+          {
+            title: '📈 Analytics Commands',
+            value: '• "show trending documents"\n• "what\'s popular today"\n• "get my recent searches"',
+            short: true
+          }
+        ]
+      }, {
+        color: '#36a64f',
+        title: '🛠️ Available Tools & APIs',
+        text: 'I can search across these connected platforms:',
+        fields: [
+          {
+            title: '☁️ Cloud Storage',
+            value: '• Google Drive\n• Dropbox\n• SharePoint',
+            short: true
+          },
+          {
+            title: '💼 Business Tools',
+            value: '• Jira\n• Confluence\n• Slack\n• Microsoft Teams',
+            short: true
+          },
+          {
+            title: '📚 Documentation',
+            value: '• Document 360\n• Zendesk\n• Notion',
+            short: true
+          },
+          {
+            title: '🔧 Development',
+            value: '• GitHub\n• Airtable\n• Custom APIs',
+            short: true
+          }
+        ]
+      }, {
+        color: '#4A154B',
+        title: '🚀 Quick Actions',
+        text: 'Try these commands to get started:',
+        actions: [
+          {
+            type: 'button',
+            text: '🔗 Connect Tools',
+            value: 'connect_tools_action',
+            style: 'primary'
+          }
+        ],
+        fields: [
+          {
+            title: '🔗 Connect Your Tools',
+            value: 'Type: `@SmartBot connect tools`',
+            short: true
+          },
+          {
+            title: '🔍 Search Example',
+            value: 'Type: `@SmartBot search for quarterly reports`',
+            short: true
+          }
+        ]
+      }, {
+        color: 'warning',
+        title: '💡 Pro Tips',
+        text: 'To get the best results:',
+        fields: [
+          {
+            title: '✅ Good Queries',
+            value: '• "search for budget documents"\n• "find emails about project X"\n• "show trending files this week"',
+            short: false
+          },
+          {
+            title: '❌ I Can\'t Help With',
+            value: '• Personal questions\n• Weather or news\n• General conversation\n• Non-work related queries',
+            short: false
+          }
+        ],
+        footer: `User: ${userContext?.slackEmail || 'Unknown'} | Query: "${query.substring(0, 50)}${query.length > 50 ? '...' : ''}"`
+      }]
+    };
   }
 
   matchByKeywords(query) {
