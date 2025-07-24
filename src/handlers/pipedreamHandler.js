@@ -67,27 +67,99 @@ class PipedreamHandler {
         };
       }
 
-      // Generate authentication URL
-      const authUrl = pipedreamService.generateAuthURL(slackUserId);
+      // Try Pipedream Connect first (no redirect URI needed!)
+      try {
+        console.log('🔗 Creating Pipedream Connect token for user:', slackUserId);
+        const connectData = await pipedreamService.createConnectToken(slackUserId);
 
-      return {
-        response_type: 'ephemeral',
-        text: '🔗 Connect your Pipedream account for personalized search',
-        attachments: [{
-          color: 'warning',
-          title: 'Pipedream Authentication Required',
-          text: 'Connect your Pipedream account to enable:\n• Personalized search results\n• Dynamic tool connections\n• Custom integrations',
-          actions: [
-            {
-              type: 'button',
-              text: 'Connect to Pipedream',
-              url: authUrl,
-              style: 'primary'
-            }
-          ],
-          footer: 'Click the button above to authenticate with Pipedream'
-        }]
-      };
+        // Get popular apps for quick connection
+        const popularApps = pipedreamService.getPopularApps();
+
+        return {
+          response_type: 'ephemeral',
+          text: '🔗 Connect your Pipedream account for personalized search',
+          attachments: [{
+            color: 'good',
+            title: 'Pipedream Connect Ready',
+            text: 'Connect your Pipedream account to enable:\n• Personalized search results\n• Dynamic tool connections\n• Custom integrations\n\nChoose how to connect:',
+            actions: [
+              {
+                type: 'button',
+                text: '🚀 Connect Any App',
+                url: connectData.connect_link_url,
+                style: 'primary'
+              },
+              {
+                type: 'button',
+                text: '📁 Connect Google Drive',
+                url: `${connectData.connect_link_url}&app=google_drive`,
+                style: 'default'
+              },
+              {
+                type: 'button',
+                text: '📧 Connect Gmail',
+                url: `${connectData.connect_link_url}&app=gmail`,
+                style: 'default'
+              }
+            ],
+            footer: `🔒 Token expires: ${new Date(connectData.expires_at).toLocaleString()} (${Math.round((new Date(connectData.expires_at) - new Date()) / 1000 / 60)} min)`
+          }, {
+            color: '#36a64f',
+            title: '💡 Quick Connect Options',
+            text: 'Popular apps you can connect:',
+            fields: popularApps.slice(0, 4).map(app => ({
+              title: `${app.icon} ${app.name}`,
+              value: `Connect ${app.name} for enhanced search`,
+              short: true
+            })),
+            actions: [
+              {
+                type: 'button',
+                text: '🐙 GitHub',
+                url: `${connectData.connect_link_url}&app=github`,
+                style: 'default'
+              },
+              {
+                type: 'button',
+                text: '📝 Notion',
+                url: `${connectData.connect_link_url}&app=notion`,
+                style: 'default'
+              },
+              {
+                type: 'button',
+                text: '📊 Airtable',
+                url: `${connectData.connect_link_url}&app=airtable`,
+                style: 'default'
+              }
+            ]
+          }]
+        };
+
+      } catch (connectError) {
+        console.error('❌ Error creating connect token, falling back to OAuth:', connectError.message);
+
+        // Fallback to OAuth if connect token fails
+        const authUrl = pipedreamService.generateAuthURL(slackUserId);
+
+        return {
+          response_type: 'ephemeral',
+          text: '🔗 Connect your Pipedream account for personalized search (OAuth fallback)',
+          attachments: [{
+            color: 'warning',
+            title: 'Pipedream Authentication Required',
+            text: 'Connect your Pipedream account to enable:\n• Personalized search results\n• Dynamic tool connections\n• Custom integrations',
+            actions: [
+              {
+                type: 'button',
+                text: 'Connect via OAuth',
+                url: authUrl,
+                style: 'primary'
+              }
+            ],
+            footer: 'Using OAuth authentication method'
+          }]
+        };
+      }
 
     } catch (error) {
       console.error('❌ Error handling connect command:', error.message);

@@ -120,13 +120,168 @@ router.get('/pipedream/callback', async (req, res) => {
   }
 });
 
+
 // Health check endpoint
 router.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    service: 'pipedream-auth'
+    service: 'oauth-auth'
   });
+});
+
+// Pipedream Connect success callback
+router.get('/pipedream/success', async (req, res) => {
+  try {
+    console.log('✅ Pipedream Connect success callback received');
+    console.log('   Query params:', req.query);
+
+    const { external_user_id, account_id, app } = req.query;
+    let userEmail = null;
+    let connectionDetails = null;
+
+    if (external_user_id && account_id) {
+      console.log('🔗 Processing successful connection:');
+      console.log('   External User ID:', external_user_id);
+      console.log('   Account ID:', account_id);
+      console.log('   App:', app || 'Unknown');
+
+      try {
+        // Store the connection in our service
+        const pipedreamService = require('../services/pipedreamService');
+        await pipedreamService.storeUserConnection(external_user_id, account_id, app);
+
+        // Extract user email from account credentials for dynamic API calls
+        const accountCredentials = await pipedreamService.getAccountCredentials(account_id);
+        userEmail = accountCredentials.email;
+        connectionDetails = {
+          account_id,
+          app: app || 'Unknown',
+          email: userEmail,
+          connected_at: new Date().toISOString()
+        };
+
+        console.log('✅ Account credentials retrieved successfully');
+        console.log('   📧 User Email extracted:', userEmail);
+        console.log('   🔧 This email will be used for dynamic API calls');
+
+        // Store the email for future API calls (you can implement persistent storage here)
+        // For now, we'll use it in the response
+
+      } catch (connectionError) {
+        console.error('⚠️ Error extracting user credentials:', connectionError.message);
+        // Continue anyway - connection might still work
+      }
+    }
+
+    // Success response with connection details
+    res.send(`
+      <html>
+        <head>
+          <title>Pipedream Connection Successful</title>
+          <style>
+            body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f8f9fa; }
+            .container { max-width: 500px; margin: 0 auto; background: white; padding: 40px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+            .success { color: #27ae60; font-size: 48px; margin-bottom: 20px; }
+            .title { color: #2c3e50; margin-bottom: 15px; }
+            .subtitle { color: #7f8c8d; margin-bottom: 30px; }
+            .details { background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0; text-align: left; }
+            .button { padding: 12px 24px; background: #27ae60; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
+            .button:hover { background: #219a52; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="success">🎉</div>
+            <h1 class="title">Pipedream Connected Successfully!</h1>
+            <p class="subtitle">Your account has been connected and you can now use dynamic tool access.</p>
+
+            ${external_user_id ? `
+              <div class="details">
+                <strong>Connection Details:</strong><br>
+                👤 User ID: ${external_user_id}<br>
+                🔗 Account ID: ${account_id || 'N/A'}<br>
+                📱 App: ${app || 'General Connection'}<br>
+                ${userEmail ? `📧 Email: ${userEmail}<br>` : ''}
+                ${userEmail ? `🎯 <strong>This email will be used for dynamic API calls!</strong>` : ''}
+              </div>
+            ` : ''}
+
+            <p><strong>Next Steps:</strong></p>
+            <ul style="text-align: left; display: inline-block;">
+              <li>Return to Slack</li>
+              <li>Try: <code>@SmartBot pipedream status</code></li>
+              <li>Try: <code>@SmartBot search for documents</code></li>
+            </ul>
+
+            <button class="button" onclick="window.close()">Close & Return to Slack</button>
+          </div>
+          <script>
+            // Auto-close after 10 seconds
+            setTimeout(() => {
+              window.close();
+            }, 10000);
+          </script>
+        </body>
+      </html>
+    `);
+
+  } catch (error) {
+    console.error('❌ Pipedream success callback error:', error.message);
+    res.redirect('/auth/pipedream/error?message=' + encodeURIComponent(error.message));
+  }
+});
+
+// Pipedream Connect error callback
+router.get('/pipedream/error', async (req, res) => {
+  try {
+    console.log('❌ Pipedream Connect error callback received');
+    console.log('   Query params:', req.query);
+
+    const errorMessage = req.query.message || 'Unknown error occurred';
+
+    res.send(`
+      <html>
+        <head>
+          <title>Pipedream Connection Error</title>
+          <style>
+            body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f8f9fa; }
+            .container { max-width: 500px; margin: 0 auto; background: white; padding: 40px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+            .error { color: #e74c3c; font-size: 48px; margin-bottom: 20px; }
+            .title { color: #2c3e50; margin-bottom: 15px; }
+            .subtitle { color: #7f8c8d; margin-bottom: 30px; }
+            .button { padding: 12px 24px; background: #3498db; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; margin: 5px; }
+            .button:hover { background: #2980b9; }
+            .retry { background: #e67e22; }
+            .retry:hover { background: #d35400; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="error">❌</div>
+            <h1 class="title">Connection Failed</h1>
+            <p class="subtitle">There was an issue connecting your Pipedream account.</p>
+            <p style="color: #7f8c8d; font-style: italic;">${errorMessage}</p>
+            <p>Please try connecting again from Slack by typing: <code>@SmartBot connect pipedream</code></p>
+            <button class="button" onclick="window.close()">Close Window</button>
+          </div>
+        </body>
+      </html>
+    `);
+
+  } catch (error) {
+    console.error('❌ Pipedream error callback error:', error.message);
+    res.send(`
+      <html>
+        <head><title>Error</title></head>
+        <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
+          <h1 style="color: #e74c3c;">❌ Error</h1>
+          <p>An unexpected error occurred.</p>
+          <button onclick="window.close()" style="padding: 10px 20px; background: #3498db; color: white; border: none; border-radius: 5px; cursor: pointer;">Close Window</button>
+        </body>
+      </html>
+    `);
+  }
 });
 
 module.exports = router;

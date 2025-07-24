@@ -32,11 +32,349 @@ class PipedreamService {
     console.log('   Environment:', this.environment);
   }
 
+  // Get OAuth access token first (required for Connect API)
+  async getOAuthAccessToken() {
+    try {
+      console.log('� Getting OAuth access token...');
+
+      const response = await axios.post('https://api.pipedream.com/v1/oauth/token', {
+        grant_type: 'client_credentials',
+        client_id: this.clientId,
+        client_secret: this.clientSecret
+      }, {
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      const { access_token } = response.data;
+      console.log('✅ OAuth access token obtained');
+      return access_token;
+
+    } catch (error) {
+      console.error('❌ Error getting OAuth access token:', {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        message: error.message
+      });
+      throw new Error(`Failed to get OAuth access token: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  // Create a connect token for a specific user with app selection
+  async createConnectToken(external_user_id, app = null) {
+    try {
+      console.log('🔗 Creating Pipedream connect token for user:', external_user_id);
+      console.log('   App:', app || 'Any app (user choice)');
+
+      // First get OAuth access token
+      const accessToken = await this.getOAuthAccessToken();
+
+      // Create connect token with proper authentication
+      const connectUrl = `https://api.pipedream.com/v1/connect/${this.projectId}/tokens`;
+
+      const requestData = {
+        external_user_id: external_user_id,
+        // Add success/error redirect URIs to handle completion
+        success_redirect_uri: `${process.env.SLACK_BOT_URL || 'http://localhost:3000'}/auth/pipedream/success`,
+        error_redirect_uri: `${process.env.SLACK_BOT_URL || 'http://localhost:3000'}/auth/pipedream/error`,
+        // Add allowed origins for browser usage
+        allowed_origins: [
+          process.env.SLACK_BOT_URL || 'http://localhost:3000',
+          'https://pipedream.com'
+        ]
+      };
+
+      console.log('📤 Connect token request:', {
+        url: connectUrl,
+        data: requestData,
+        projectId: this.projectId
+      });
+
+      const response = await axios.post(connectUrl, requestData, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+          'X-PD-Environment': this.environment
+        }
+      });
+
+      const { token, expires_at, connect_link_url } = response.data;
+
+      console.log('✅ Connect token created successfully');
+      console.log('   Token:', token ? `✅ ${token.substring(0, 20)}...` : '❌ Missing');
+      console.log('   Expires:', new Date(expires_at).toLocaleString());
+      console.log('   Connect URL:', connect_link_url ? '✅ Generated' : '❌ Missing');
+      console.log('   ⏰ Token valid for:', Math.round((new Date(expires_at) - new Date()) / 1000 / 60), 'minutes');
+
+      // If no specific app requested, return the general connect link
+      if (!app) {
+        return {
+          token,
+          expires_at,
+          connect_link_url,
+          general_connect: true
+        };
+      }
+
+      // If specific app requested, modify the URL
+      const appSpecificUrl = `${connect_link_url}&app=${app}`;
+
+      return {
+        token,
+        expires_at,
+        connect_link_url: appSpecificUrl,
+        app: app
+      };
+    } catch (error) {
+      console.error('❌ Error creating connect token:', {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        message: error.message
+      });
+      throw new Error(`Failed to create connect token: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  // Create connect token for specific app
+  async createAppConnectToken(external_user_id, appName) {
+    return this.createConnectToken(external_user_id, appName);
+  }
+
+  // Get popular apps for connection
+  getPopularApps() {
+    return [
+      { name: 'Google Drive', slug: 'google_drive', icon: '📁' },
+      { name: 'Slack', slug: 'slack', icon: '💬' },
+      { name: 'Dropbox', slug: 'dropbox', icon: '📦' },
+      { name: 'Confluence', slug: 'Confluence', icon: '📈' },
+      { name: 'Jira', slug: 'jira', icon: '🎫' },
+      { name: 'Microsoft Teams', slug: 'microsoft_teams', icon: '🎮' },
+      { name: 'Document360', slug: 'document360', icon: '📚' },
+      { name: 'Gmail', slug: 'gmail', icon: '📧' },
+      { name: 'Notion', slug: 'notion', icon: '📝' },
+      { name: 'Microsoft SharePoint', slug: 'microsoft_sharepoint', icon: '📊' },
+      { name: 'Salesforce', slug: 'salesforce', icon: '☁️' }
+    ];
+  }
+
+  // Store user connection after successful auth
+  async storeUserConnection(external_user_id, account_id, app = null) {
+    try {
+      console.log('💾 Storing user connection:');
+      console.log('   User:', external_user_id);
+      console.log('   Account:', account_id);
+      console.log('   App:', app);
+
+      // Initialize user connections if not exists
+      if (!this.userConnections) {
+        this.userConnections = new Map();
+      }
+
+      // Store connection details
+      const connectionData = {
+        account_id,
+        app,
+        connected_at: new Date().toISOString(),
+        status: 'active'
+      };
+
+      // Get existing connections or create new array
+      const existingConnections = this.userConnections.get(external_user_id) || [];
+
+      // Add new connection (avoid duplicates)
+      const existingIndex = existingConnections.findIndex(conn =>
+        conn.account_id === account_id && conn.app === app
+      );
+
+      if (existingIndex >= 0) {
+        existingConnections[existingIndex] = connectionData;
+        console.log('✅ Updated existing connection');
+      } else {
+        existingConnections.push(connectionData);
+        console.log('✅ Added new connection');
+      }
+
+      this.userConnections.set(external_user_id, existingConnections);
+
+      console.log(`📊 User ${external_user_id} now has ${existingConnections.length} connection(s)`);
+
+      return connectionData;
+    } catch (error) {
+      console.error('❌ Error storing user connection:', error.message);
+      throw error;
+    }
+  }
+
+  // Get user's connections
+  getUserConnections(external_user_id) {
+    if (!this.userConnections) {
+      return [];
+    }
+    return this.userConnections.get(external_user_id) || [];
+  }
+
+  // Get account token for API calls
+  async getAccountToken(account_id) {
+    try {
+      console.log('🔑 Getting account token for:', account_id);
+
+      const accessToken = await this.getOAuthAccessToken();
+      const tokenUrl = `https://api.pipedream.com/v1/accounts/${account_id}/token`;
+
+      const response = await axios.get(tokenUrl, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      console.log('✅ Account token retrieved successfully');
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error getting account token:', {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        message: error.message
+      });
+      throw error;
+    }
+  }
+
+  // Get user's actual connected accounts from Pipedream
+  async getUserConnectedAccounts(external_user_id) {
+    try {
+      console.log('🔍 Fetching connected accounts for user:', external_user_id);
+
+      const accessToken = await this.getOAuthAccessToken();
+      const accountsUrl = `https://api.pipedream.com/v1/users/${external_user_id}/accounts`;
+
+      const response = await axios.get(accountsUrl, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      console.log('✅ Connected accounts retrieved:', response.data.length);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error fetching connected accounts:', {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        message: error.message
+      });
+
+      // Return your hardcoded accounts as fallback
+      console.log('📋 Using fallback connected accounts');
+      return [
+        { "account_id": "apn_JjhlBOP", "name": "Google Drive" },
+        { "account_id": "apn_gyhaYWw", "name": "Dropbox" },
+        { "account_id": "apn_0WhmOPw", "name": "Jira" },
+        { "account_id": "apn_KAhZwja", "name": "Confluence" },
+        { "account_id": "apn_V1h9dKx", "name": "Microsoft Teams" },
+        { "account_id": "apn_z8hK7n5", "name": "Microsoft SharePoint" },
+        { "account_id": "apn_arhpXvr", "name": "Document 360" }
+      ];
+    }
+  }
+
+  // Get account credentials and extract email for dynamic user identification
+  async getAccountCredentials(account_id) {
+    try {
+      console.log('🔑 Getting credentials for account:', account_id);
+
+      const accessToken = await this.getOAuthAccessToken();
+      const credentialsUrl = `https://api.pipedream.com/v1/accounts/${account_id}/token`;
+
+      const response = await axios.get(credentialsUrl, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      console.log('✅ Account credentials retrieved successfully');
+      console.log('   Email found:', response.data.email || response.data.user_email || 'No email');
+
+      return {
+        account_id,
+        token: response.data.token,
+        email: response.data.email || response.data.user_email,
+        expires_at: response.data.expires_at,
+        scopes: response.data.scopes,
+        user_info: response.data.user_info || {}
+      };
+    } catch (error) {
+      console.error('❌ Error getting account credentials:', {
+        account_id,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        message: error.message
+      });
+      throw error;
+    }
+  }
+
+  // Get user status with real connected accounts and dynamic email extraction
+  async getUserStatus(external_user_id) {
+    try {
+      console.log('📊 Getting comprehensive user status for:', external_user_id);
+
+      // Get real connected accounts from Pipedream
+      const connectedAccounts = await this.getUserConnectedAccounts(external_user_id);
+
+      // Get stored local connections
+      const localConnections = this.getUserConnections(external_user_id);
+
+      // Try to extract primary email from first connected account
+      let primaryEmail = null;
+      if (connectedAccounts.length > 0) {
+        try {
+          const firstAccountCreds = await this.getAccountCredentials(connectedAccounts[0].account_id);
+          primaryEmail = firstAccountCreds.email;
+          console.log('✅ Primary email extracted:', primaryEmail);
+        } catch (emailError) {
+          console.log('⚠️ Could not extract primary email:', emailError.message);
+        }
+      }
+
+      return {
+        user_id: external_user_id,
+        connected: connectedAccounts.length > 0,
+        primary_email: primaryEmail, // Dynamic email for API calls
+        pipedream_accounts: connectedAccounts,
+        local_connections: localConnections,
+        total_accounts: connectedAccounts.length,
+        account_names: connectedAccounts.map(acc => acc.name),
+        account_ids: connectedAccounts.map(acc => acc.account_id)
+      };
+    } catch (error) {
+      console.error('❌ Error getting user status:', error.message);
+      return {
+        user_id: external_user_id,
+        connected: false,
+        primary_email: null,
+        pipedream_accounts: [],
+        local_connections: [],
+        total_accounts: 0,
+        account_names: [],
+        account_ids: [],
+        error: error.message
+      };
+    }
+  }
+
   // Generate OAuth URL for user authentication
   generateAuthURL(slackUserId, returnUrl = null) {
     const state = this.generateState(slackUserId);
     const redirectUri = `${process.env.SLACK_BOT_URL || 'http://localhost:3000'}/auth/pipedream/callback`;
-    
+
     const authUrl = `https://pipedream.com/oauth/authorize?` +
       `client_id=${this.clientId}&` +
       `redirect_uri=${encodeURIComponent(redirectUri)}&` +
@@ -140,59 +478,123 @@ class PipedreamService {
     return { authenticated: true, userAuth };
   }
 
-  // Get available tool connections for user
+  // Get available tool connections for user (legacy method - now returns local connections)
   async getUserConnections(slackUserId) {
     try {
-      const authStatus = this.getUserAuth(slackUserId);
-      if (!authStatus.authenticated) {
-        throw new Error('User not authenticated');
+      console.log('🔍 Getting user connections for:', slackUserId);
+
+      // Try to get local stored connections first
+      if (this.userConnections) {
+        const localConnections = this.userConnections.get(slackUserId) || [];
+        if (localConnections.length > 0) {
+          console.log('✅ Found local connections:', localConnections.length);
+          return localConnections;
+        }
       }
 
-      const response = await this.client.get('/sources', {
-        headers: {
-          'Authorization': `Bearer ${authStatus.userAuth.accessToken}`
+      // Try OAuth-based connections as fallback
+      const authStatus = this.getUserAuth(slackUserId);
+      if (authStatus.authenticated) {
+        try {
+          const response = await this.client.get('/sources', {
+            headers: {
+              'Authorization': `Bearer ${authStatus.userAuth.accessToken}`
+            }
+          });
+          const connections = response.data.data || [];
+          console.log('📱 Retrieved OAuth connections:', connections.length);
+          return connections;
+        } catch (oauthError) {
+          console.log('⚠️ OAuth connections not available:', oauthError.message);
         }
-      });
+      }
 
-      const connections = response.data.data || [];
-      
-      console.log('📱 Retrieved user connections:', connections.length);
-      return connections;
-
+      // Return empty array instead of throwing error
+      console.log('📋 No connections found, returning empty array');
+      return [];
     } catch (error) {
       console.error('❌ Error fetching user connections:', error.message);
-      throw error;
+      return []; // Return empty array instead of throwing
     }
   }
 
-  // Get dynamic user credentials for API calls
-  getDynamicCredentials(slackUserId) {
-    const authStatus = this.getUserAuth(slackUserId);
-    
-    if (!authStatus.authenticated) {
-      // Return static credentials as fallback
-      console.log('⚠️ User not authenticated, using static credentials');
-      return {
-        external_user_id: "686652ee4314417de20af851",
-        user_email: "ayush.enterprise.search@gmail.com",
-        account_ids: [
-          "apn_XehedEz", "apn_Xehed1w", "apn_yghjwOb", 
-          "apn_7rhaEpm", "apn_x7hrxmn", "apn_arhpXvr"
-        ],
-        dynamic: false
-      };
+  // Get dynamic user credentials for API calls with extracted email
+  async getDynamicCredentials(slackUserId) {
+    try {
+      console.log('🔍 Getting dynamic credentials for user:', slackUserId);
+
+      // Try to get user status with connected accounts
+      const userStatus = await this.getUserStatus(slackUserId);
+
+      if (userStatus.connected && userStatus.primary_email) {
+        // Use extracted email from connected accounts
+        console.log('✅ Using dynamic credentials with extracted email');
+        console.log('   📧 Dynamic Email:', userStatus.primary_email);
+        console.log('   🔗 Connected Accounts:', userStatus.total_accounts);
+
+        return {
+          external_user_id: slackUserId, // Use Slack user ID as external user ID
+          user_email: userStatus.primary_email, // Dynamic email from connected account
+          account_ids: userStatus.account_ids, // Real connected account IDs
+          dynamic: true,
+          slack_user_id: slackUserId,
+          connected_accounts: userStatus.pipedream_accounts,
+          total_accounts: userStatus.total_accounts
+        };
+      }
+
+      // Fallback to old auth method
+      const authStatus = this.getUserAuth(slackUserId);
+
+      if (authStatus.authenticated) {
+        console.log('✅ Using OAuth-based dynamic credentials');
+        return {
+          external_user_id: authStatus.userAuth.pipedreamUserId,
+          user_email: authStatus.userAuth.email,
+          account_ids: this.getUserAccountIds(authStatus.userAuth),
+          dynamic: true,
+          slack_user_id: slackUserId,
+          pipedream_user_id: authStatus.userAuth.pipedreamUserId
+        };
+      }
+
+    } catch (error) {
+      console.error('⚠️ Error getting dynamic credentials:', error.message);
     }
 
-    // Return dynamic credentials based on authenticated user
-    console.log('✅ Using dynamic credentials for authenticated user');
+    // Return static credentials as final fallback
+    console.log('⚠️ Using static credentials as fallback');
     return {
-      external_user_id: authStatus.userAuth.pipedreamUserId,
-      user_email: authStatus.userAuth.email,
-      account_ids: this.getUserAccountIds(authStatus.userAuth),
-      dynamic: true,
-      slack_user_id: slackUserId,
-      pipedream_user_id: authStatus.userAuth.pipedreamUserId
+      external_user_id: "686652ee4314417de20af851",
+      user_email: "ayush.enterprise.search@gmail.com",
+      account_ids: [
+        "apn_XehedEz", "apn_Xehed1w", "apn_yghjwOb",
+        "apn_7rhaEpm", "apn_x7hrxmn", "apn_arhpXvr"
+      ],
+      dynamic: false
     };
+  }
+
+  // Fetch account access token (like your pd.ts getAccountToken)
+  async getAccountToken(accountId) {
+    try {
+      console.log('🔑 Fetching account access token for:', accountId);
+
+      const response = await this.client.get(`/accounts/${accountId}`);
+      const account = response.data;
+
+      const access_token = account?.credentials?.access_token;
+      if (!access_token) {
+        throw new Error("No access token found for account");
+      }
+
+      console.log('✅ Access token retrieved successfully');
+      return { access_token };
+
+    } catch (error) {
+      console.error('❌ Error fetching account token:', error.response?.data || error.message);
+      throw new Error(`Failed to get account token: ${error.response?.data?.message || error.message}`);
+    }
   }
 
   // Get user's account IDs based on their connections
@@ -201,7 +603,7 @@ class PipedreamService {
     // For now, return a default set, but this should be dynamic based on connections
     return [
       `pd_${userAuth.pipedreamUserId}`, // Pipedream-based account ID
-      "apn_XehedEz", "apn_Xehed1w", "apn_yghjwOb", 
+      "apn_XehedEz", "apn_Xehed1w", "apn_yghjwOb",
       "apn_7rhaEpm", "apn_x7hrxmn", "apn_arhpXvr"
     ];
   }
