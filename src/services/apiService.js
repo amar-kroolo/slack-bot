@@ -76,13 +76,14 @@ class ApiService {
       if (apiConfig.requiresAuth) {
         console.log('🔐 Applying Dynamic RBAC Security...');
 
-        // Get dynamic credentials based on user authentication
-        const dynamicCredentials = pipedreamService.getDynamicCredentials(slackUserId);
+        // Get dynamic credentials based on user authentication (now async)
+        const dynamicCredentials = await pipedreamService.getDynamicCredentials(slackUserId);
         console.log('👤 User Credentials:', {
           dynamic: dynamicCredentials.dynamic,
           email: dynamicCredentials.user_email,
           userId: dynamicCredentials.external_user_id,
-          accountCount: dynamicCredentials.account_ids.length
+          accountCount: dynamicCredentials.account_ids.length,
+          totalAccounts: dynamicCredentials.total_accounts || 'N/A'
         });
 
         const requestBody = {

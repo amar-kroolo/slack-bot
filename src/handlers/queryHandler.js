@@ -2,21 +2,40 @@ const { API_ENDPOINTS, QUERY_PATTERNS } = require('../config/apis');
 const apiService = require('../services/apiService');
 const nlpService = require('../services/nlpService');
 const pipedreamHandler = require('./pipedreamHandler');
+const slackHandler = require('./slackHandler');
+const connectToolsHandler = require('./connectToolsHandler');
 
 class QueryHandler {
-  async processQuery(query, slackUserId = null) {
+  async processQuery(query, userContext = null) {
     try {
       console.log('\n🚀 ===== STARTING QUERY PROCESSING =====');
       console.log('📝 Original Query from Slack:', `"${query}"`);
-      console.log('👤 Slack User ID:', slackUserId || 'Anonymous');
+      console.log('👤 User Context:', userContext);
       console.log('⏰ Timestamp:', new Date().toISOString());
       console.log('🔍 Query Length:', query.length, 'characters');
+
+      // Extract slackUserId from userContext for backward compatibility
+      const slackUserId = userContext?.slackUserId || userContext;
+
+      // Check if this is a unified connect tools command (highest priority)
+      const connectToolsCommand = connectToolsHandler.parseConnectToolsCommand(query);
+      if (connectToolsCommand) {
+        console.log('🛠️ Connect tools command detected:', connectToolsCommand.command);
+        return await connectToolsHandler.handleCommand(connectToolsCommand, slackUserId, userContext);
+      }
 
       // Check if this is a Pipedream-related command
       const pipedreamCommand = pipedreamHandler.parsePipedreamCommand(query);
       if (pipedreamCommand) {
         console.log('🔗 Pipedream command detected:', pipedreamCommand.command);
         return await this.handlePipedreamCommand(pipedreamCommand, slackUserId);
+      }
+
+      // Check if this is a Slack-related command
+      const slackCommand = this.parseSlackCommand(query);
+      if (slackCommand) {
+        console.log('💬 Slack command detected:', slackCommand.command);
+        return await this.handleSlackCommand(slackCommand, slackUserId);
       }
 
       // Step 1: Parse the natural language query with enhanced NLP
@@ -278,6 +297,61 @@ class QueryHandler {
       console.error('❌ Error handling Pipedream command:', error.message);
       return {
         error: `Pipedream command error: ${error.message}`
+      };
+    }
+  }
+  // Parse Slack-specific commands
+  parseSlackCommand(query) {
+    const normalizedQuery = query.toLowerCase().trim();
+
+    // Slack connection commands
+    if (normalizedQuery.includes('connect slack') || normalizedQuery.includes('slack connect')) {
+      return { command: 'connect', type: 'slack' };
+    }
+
+    if (normalizedQuery.includes('slack status') || normalizedQuery.includes('status slack')) {
+      return { command: 'status', type: 'slack' };
+    }
+
+    if (normalizedQuery.includes('disconnect slack') || normalizedQuery.includes('slack disconnect')) {
+      return { command: 'disconnect', type: 'slack' };
+    }
+
+    if (normalizedQuery.includes('slack apps') || normalizedQuery.includes('manage slack')) {
+      return { command: 'manage', type: 'slack' };
+    }
+
+    return null;
+  }
+
+  // Handle Slack-specific commands
+  async handleSlackCommand(slackCommand, slackUserId) {
+    try {
+      console.log('💬 Processing Slack command:', slackCommand.command);
+
+      switch (slackCommand.command) {
+        case 'connect':
+          return await slackHandler.handleConnectCommand(slackUserId);
+
+        case 'status':
+          return await slackHandler.handleStatusCommand(slackUserId);
+
+        case 'disconnect':
+          return await slackHandler.handleDisconnectCommand(slackUserId);
+
+        case 'manage':
+          return await slackHandler.handleManageAppsCommand(slackUserId);
+
+        default:
+          console.log('❌ Unknown Slack command:', slackCommand.command);
+          return {
+            error: `Unknown Slack command: ${slackCommand.command}`
+          };
+      }
+    } catch (error) {
+      console.error('❌ Error handling Slack command:', error.message);
+      return {
+        error: `Error processing Slack command: ${error.message}`
       };
     }
   }
