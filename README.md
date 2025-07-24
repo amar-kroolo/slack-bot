@@ -62,7 +62,6 @@ Mention the bot in any channel:
 @EnterpriseSearchBot what's trending now?
 @EnterpriseSearchBot suggest api documentation
 ```
-
 ## Project Structure
 - `app.js` - Main application entry point
 - `src/` - Source code directory
