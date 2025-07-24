@@ -15,154 +15,63 @@ class PipedreamHandler {
       console.log('   Slack User ID:', slackUserId);
       console.log('   Channel ID:', channelId);
 
-      // Check if user is already connected
-      const connectionStatus = pipedreamService.getConnectionStatus(slackUserId);
-      
-      if (connectionStatus.connected) {
-        return {
-          response_type: 'ephemeral',
-          text: '✅ You are already connected to Pipedream!',
-          attachments: [{
-            color: 'good',
-            fields: [
-              {
-                title: 'Connection Status',
-                value: connectionStatus.message,
-                short: false
-              },
-              {
-                title: 'Connected Since',
-                value: new Date(connectionStatus.connectedAt).toLocaleString(),
-                short: true
-              },
-              {
-                title: 'User ID',
-                value: connectionStatus.userId,
-                short: true
-              }
-            ],
-            actions: [
-              {
-                type: 'button',
-                text: 'Disconnect',
-                name: 'disconnect_pipedream',
-                value: 'disconnect',
-                style: 'danger',
-                confirm: {
-                  title: 'Disconnect from Pipedream?',
-                  text: 'This will remove your personalized search access.',
-                  ok_text: 'Disconnect',
-                  dismiss_text: 'Cancel'
-                }
-              },
-              {
-                type: 'button',
-                text: 'Manage Tools',
-                name: 'manage_tools',
-                value: 'manage',
-                style: 'primary'
-              }
-            ]
-          }]
-        };
-      }
+      // Always create connect token and show options (simplified approach)
+      console.log('🔗 Creating Pipedream Connect token for user:', slackUserId);
+      const connectData = await pipedreamService.createConnectToken(slackUserId);
 
-      // Try Pipedream Connect first (no redirect URI needed!)
-      try {
-        console.log('🔗 Creating Pipedream Connect token for user:', slackUserId);
-        const connectData = await pipedreamService.createConnectToken(slackUserId);
+      // Get popular apps for quick connection
+      const popularApps = pipedreamService.getPopularApps();
 
-        // Get popular apps for quick connection
-        const popularApps = pipedreamService.getPopularApps();
-
-        return {
-          response_type: 'ephemeral',
-          text: '🔗 Connect your Pipedream account for personalized search',
-          attachments: [{
-            color: 'good',
-            title: 'Pipedream Connect Ready',
-            text: 'Connect your Pipedream account to enable:\n• Personalized search results\n• Dynamic tool connections\n• Custom integrations\n\nChoose how to connect:',
-            actions: [
-              {
-                type: 'button',
-                text: '🚀 Connect Any App',
-                url: connectData.connect_link_url,
-                style: 'primary'
-              },
-              {
-                type: 'button',
-                text: '📁 Connect Google Drive',
-                url: `${connectData.connect_link_url}&app=google_drive`,
-                style: 'default'
-              },
-              {
-                type: 'button',
-                text: '📧 Connect Gmail',
-                url: `${connectData.connect_link_url}&app=gmail`,
-                style: 'default'
-              }
-            ],
-            footer: `🔒 Token expires: ${new Date(connectData.expires_at).toLocaleString()} (${Math.round((new Date(connectData.expires_at) - new Date()) / 1000 / 60)} min)`
-          }, {
-            color: '#36a64f',
-            title: '💡 Quick Connect Options',
-            text: 'Popular apps you can connect:',
-            fields: popularApps.slice(0, 4).map(app => ({
-              title: `${app.icon} ${app.name}`,
-              value: `Connect ${app.name} for enhanced search`,
-              short: true
-            })),
-            actions: [
-              {
-                type: 'button',
-                text: '🐙 GitHub',
-                url: `${connectData.connect_link_url}&app=github`,
-                style: 'default'
-              },
-              {
-                type: 'button',
-                text: '📝 Notion',
-                url: `${connectData.connect_link_url}&app=notion`,
-                style: 'default'
-              },
-              {
-                type: 'button',
-                text: '📊 Airtable',
-                url: `${connectData.connect_link_url}&app=airtable`,
-                style: 'default'
-              }
-            ]
-          }]
-        };
-
-      } catch (connectError) {
-        console.error('❌ Error creating connect token, falling back to OAuth:', connectError.message);
-
-        // Fallback to OAuth if connect token fails
-        const authUrl = pipedreamService.generateAuthURL(slackUserId);
-
-        return {
-          response_type: 'ephemeral',
-          text: '🔗 Connect your Pipedream account for personalized search (OAuth fallback)',
-          attachments: [{
-            color: 'warning',
-            title: 'Pipedream Authentication Required',
-            text: 'Connect your Pipedream account to enable:\n• Personalized search results\n• Dynamic tool connections\n• Custom integrations',
-            actions: [
-              {
-                type: 'button',
-                text: 'Connect via OAuth',
-                url: authUrl,
-                style: 'primary'
-              }
-            ],
-            footer: 'Using OAuth authentication method'
-          }]
-        };
-      }
+      return {
+        response_type: 'ephemeral',
+        text: '🔗 Connect your Pipedream account for personalized search',
+        attachments: [{
+          color: 'good',
+          title: 'Pipedream Connect Ready',
+          text: 'Connect your Pipedream account to enable:\n• Personalized search results\n• Dynamic tool connections\n• Custom integrations',
+          actions: [
+            {
+              type: 'button',
+              text: '🚀 Connect Any App',
+              url: connectData.connect_link_url,
+              style: 'primary'
+            }
+          ],
+          footer: `🔒 Token expires: ${new Date(connectData.expires_at).toLocaleString()} (${Math.round((new Date(connectData.expires_at) - new Date()) / 1000 / 60)} min)`
+        }, {
+          color: '#36a64f',
+          title: '💡 Quick Connect Options',
+          text: 'Popular apps you can connect:',
+          fields: popularApps.slice(0, 4).map(app => ({
+            title: `${app.icon} ${app.name}`,
+            value: `Connect ${app.name} for enhanced search`,
+            short: true
+          })),
+          actions: [
+            {
+              type: 'button',
+              text: '🐙 GitHub',
+              url: `https://pipedream.com/_static/connect.html?token=${connectData.token}&connectLink=true&app=github`,
+              style: 'default'
+            },
+            {
+              type: 'button',
+              text: '📝 Notion',
+              url: `https://pipedream.com/_static/connect.html?token=${connectData.token}&connectLink=true&app=notion`,
+              style: 'default'
+            },
+            {
+              type: 'button',
+              text: '📊 Airtable',
+              url: `https://pipedream.com/_static/connect.html?token=${connectData.token}&connectLink=true&app=airtable`,
+              style: 'default'
+            }
+          ]
+        }]
+      };
 
     } catch (error) {
-      console.error('❌ Error handling connect command:', error.message);
+      console.error('❌ Error in Pipedream connect command:', error.message);
       return {
         response_type: 'ephemeral',
         text: '❌ Error connecting to Pipedream. Please try again later.',

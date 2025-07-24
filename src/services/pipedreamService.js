@@ -1,6 +1,7 @@
 // Pipedream Dynamic Authentication Service
 // Handles user authentication and tool connections via Pipedream
 
+const { createBackendClient } = require('@pipedream/sdk/server');
 const axios = require('axios');
 
 class PipedreamService {
@@ -13,8 +14,18 @@ class PipedreamService {
     this.clientSecret = process.env.PIPEDREAM_CLIENT_SECRET;
     this.environment = process.env.PIPEDREAM_ENV || 'development';
     this.apiBase = process.env.PIPEDREAM_API_BASE || 'https://api.pipedream.com/v1';
-    
-    // Initialize Pipedream client
+
+    // Initialize Pipedream SDK client (like the TypeScript reference)
+    this.pd = createBackendClient({
+      environment: this.environment,
+      projectId: this.projectId,
+      credentials: {
+        clientId: this.clientId,
+        clientSecret: this.clientSecret,
+      },
+    });
+
+    // Keep axios client for fallback OAuth operations
     this.client = axios.create({
       baseURL: this.apiBase,
       headers: {
@@ -27,23 +38,60 @@ class PipedreamService {
     this.userSessions = new Map();
     
     console.log('🔧 Pipedream Service initialized');
-    console.log('   Client ID:', this.clientId ? '✅ Configured' : '❌ Missing');
-    console.log('   Project ID:', this.projectId ? '✅ Configured' : '❌ Missing');
+    console.log('   Client ID:', this.clientId ? `✅ Set (${this.clientId.substring(0, 10)}...)` : '❌ Missing');
+    console.log('   Project ID:', this.projectId ? `✅ Set (${this.projectId.substring(0, 10)}...)` : '❌ Missing');
+    console.log('   Client Secret:', this.clientSecret ? `✅ Set (${this.clientSecret.substring(0, 10)}...)` : '❌ Missing');
     console.log('   Environment:', this.environment);
+    console.log('   API Base:', this.apiBase);
+
+    // Validate required credentials
+    if (!this.clientId || !this.projectId || !this.clientSecret) {
+      console.error('❌ Missing required Pipedream credentials!');
+      console.error('   Please check your .env file has:');
+      console.error('   - PIPEDREAM_CLIENT_ID');
+      console.error('   - PIPEDREAM_PROJECT_ID');
+      console.error('   - PIPEDREAM_CLIENT_SECRET');
+    }
   }
 
   // Get OAuth access token first (required for Connect API)
   async getOAuthAccessToken() {
     try {
       console.log('� Getting OAuth access token...');
+      console.log('🔍 Debug - Credentials check:');
+      console.log('   Client ID exists:', !!this.clientId);
+      console.log('   Client Secret exists:', !!this.clientSecret);
+      console.log('   Client ID length:', this.clientId?.length || 0);
+      console.log('   Client Secret length:', this.clientSecret?.length || 0);
 
-      const response = await axios.post('https://api.pipedream.com/v1/oauth/token', {
-        grant_type: 'client_credentials',
-        client_id: this.clientId,
-        client_secret: this.clientSecret
-      }, {
+      if (!this.clientId || !this.clientSecret) {
+        throw new Error('Missing Pipedream client credentials. Check PIPEDREAM_CLIENT_ID and PIPEDREAM_CLIENT_SECRET in .env file.');
+      }
+
+      // Use Python approach: Form data (exactly like your Python code)
+      console.log('📤 OAUTH ATTEMPT: Using Python approach (form data)');
+
+      const formData = {
+        'grant_type': 'client_credentials',
+        'client_id': this.clientId,
+        'client_secret': this.clientSecret
+      };
+
+      console.log('📋 Request details:');
+      console.log('   URL: https://api.pipedream.com/v1/oauth/token');
+      console.log('   Method: POST');
+      console.log('   Content-Type: application/x-www-form-urlencoded');
+      console.log('   Grant Type:', formData.grant_type);
+      console.log('   Client ID preview:', formData.client_id.substring(0, 10) + '...');
+
+      const params = new URLSearchParams();
+      params.append('grant_type', formData.grant_type);
+      params.append('client_id', formData.client_id);
+      params.append('client_secret', formData.client_secret);
+
+      const response = await axios.post('https://api.pipedream.com/v1/oauth/token', params, {
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/x-www-form-urlencoded'
         }
       });
 
@@ -58,39 +106,65 @@ class PipedreamService {
         data: error.response?.data,
         message: error.message
       });
+
+      // Provide specific error guidance
+      if (error.response?.status === 401) {
+        console.error('💡 OAuth 401 Error - Possible causes:');
+        console.error('   1. Invalid PIPEDREAM_CLIENT_ID');
+        console.error('   2. Invalid PIPEDREAM_CLIENT_SECRET');
+        console.error('   3. Credentials not properly set in .env file');
+        console.error('   4. Check if credentials are from the correct Pipedream OAuth app');
+      }
+
       throw new Error(`Failed to get OAuth access token: ${error.response?.data?.message || error.message}`);
     }
   }
 
-  // Create a connect token for a specific user with app selection
+  // Create a connect token for a specific user (fallback to working manual API approach)
   async createConnectToken(external_user_id, app = null) {
     try {
       console.log('🔗 Creating Pipedream connect token for user:', external_user_id);
       console.log('   App:', app || 'Any app (user choice)');
 
-      // First get OAuth access token
-      const accessToken = await this.getOAuthAccessToken();
+      // Try SDK first, fallback to manual API if it fails
+      try {
+        console.log('🔄 Attempting SDK approach...');
+        const { token, expires_at, connect_link_url } = await this.pd.createConnectToken({
+          external_user_id,
+        });
 
-      // Create connect token with proper authentication
+        console.log('✅ Connect token created successfully via SDK');
+        const staticConnectUrl = `https://pipedream.com/_static/connect.html?token=${token}&connectLink=true`;
+        const finalUrl = app ? `${staticConnectUrl}&app=${app}` : staticConnectUrl;
+
+        return {
+          token,
+          expires_at,
+          connect_link_url: finalUrl,
+          original_connect_url: connect_link_url,
+          app: app,
+          static_format: true
+        };
+      } catch (sdkError) {
+        console.log('⚠️ SDK failed, falling back to manual API approach...');
+        console.log('   SDK Error:', sdkError.message);
+      }
+
+      // Use Python approach for connect token creation
+      console.log('🔗 CONNECT TOKEN: Using Python approach...');
+      const accessToken = await this.getOAuthAccessToken();
       const connectUrl = `https://api.pipedream.com/v1/connect/${this.projectId}/tokens`;
 
       const requestData = {
-        external_user_id: external_user_id,
-        // Add success/error redirect URIs to handle completion
-        success_redirect_uri: `${process.env.SLACK_BOT_URL || 'http://localhost:3000'}/auth/pipedream/success`,
-        error_redirect_uri: `${process.env.SLACK_BOT_URL || 'http://localhost:3000'}/auth/pipedream/error`,
-        // Add allowed origins for browser usage
-        allowed_origins: [
-          process.env.SLACK_BOT_URL || 'http://localhost:3000',
-          'https://pipedream.com'
-        ]
+        external_user_id: external_user_id
       };
 
-      console.log('📤 Connect token request:', {
-        url: connectUrl,
-        data: requestData,
-        projectId: this.projectId
-      });
+      console.log('📋 Connect token request details:');
+      console.log('   URL:', connectUrl);
+      console.log('   Method: POST');
+      console.log('   External User ID:', external_user_id);
+      console.log('   Project ID:', this.projectId);
+      console.log('   Environment:', this.environment);
 
       const response = await axios.post(connectUrl, requestData, {
         headers: {
@@ -102,30 +176,22 @@ class PipedreamService {
 
       const { token, expires_at, connect_link_url } = response.data;
 
-      console.log('✅ Connect token created successfully');
+      console.log('✅ Connect token created successfully via manual API');
       console.log('   Token:', token ? `✅ ${token.substring(0, 20)}...` : '❌ Missing');
       console.log('   Expires:', new Date(expires_at).toLocaleString());
-      console.log('   Connect URL:', connect_link_url ? '✅ Generated' : '❌ Missing');
       console.log('   ⏰ Token valid for:', Math.round((new Date(expires_at) - new Date()) / 1000 / 60), 'minutes');
 
-      // If no specific app requested, return the general connect link
-      if (!app) {
-        return {
-          token,
-          expires_at,
-          connect_link_url,
-          general_connect: true
-        };
-      }
-
-      // If specific app requested, modify the URL
-      const appSpecificUrl = `${connect_link_url}&app=${app}`;
+      // Generate the static connect URL format you specified
+      const staticConnectUrl = `https://pipedream.com/_static/connect.html?token=${token}&connectLink=true`;
+      const finalUrl = app ? `${staticConnectUrl}&app=${app}` : staticConnectUrl;
 
       return {
         token,
         expires_at,
-        connect_link_url: appSpecificUrl,
-        app: app
+        connect_link_url: finalUrl,
+        original_connect_url: connect_link_url,
+        app: app,
+        static_format: true
       };
     } catch (error) {
       console.error('❌ Error creating connect token:', {
@@ -141,6 +207,29 @@ class PipedreamService {
   // Create connect token for specific app
   async createAppConnectToken(external_user_id, appName) {
     return this.createConnectToken(external_user_id, appName);
+  }
+
+  // Get account access token using SDK (like TypeScript reference)
+  async getAccountToken(accountId) {
+    try {
+      console.log('🔑 Getting account token via SDK for:', accountId);
+
+      const account = await this.pd.getAccountById(accountId);
+      const access_token = account?.credentials?.access_token;
+
+      if (!access_token) {
+        throw new Error("No access token found");
+      }
+
+      console.log('✅ Account token retrieved successfully via SDK');
+      return { access_token };
+    } catch (error) {
+      console.error('❌ Error getting account token via SDK:', {
+        accountId,
+        message: error.message
+      });
+      throw error;
+    }
   }
 
   // Get popular apps for connection
