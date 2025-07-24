@@ -93,10 +93,13 @@ class ApiService {
           ...this.cleanParameters(parameters)
         };
 
-        // Add default apps for search queries
+        // Add dynamic connected apps for search queries
         if (apiName === 'search' && !requestBody.apps) {
-          console.log('📱 Adding default apps for search query');
-          requestBody.apps = DEFAULT_APPS;
+          console.log('📱 Getting user\'s connected apps for search query');
+          const connectedApps = pipedreamService.getConnectedAppsForSearch(dynamicCredentials.external_user_id);
+          requestBody.apps = connectedApps;
+          console.log('🔗 Using connected apps:', connectedApps);
+          console.log('📊 Total apps in search:', connectedApps.length);
         }
 
         console.log('📤 Complete Request Body:');

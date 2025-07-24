@@ -36,6 +36,9 @@ class PipedreamService {
 
     // In-memory user session storage (in production, use Redis or database)
     this.userSessions = new Map();
+
+    // Track user connections and their status
+    this.userConnections = new Map(); // userId -> { connections: [], lastUpdated: timestamp }
     
     console.log('🔧 Pipedream Service initialized');
     console.log('   Client ID:', this.clientId ? `✅ Set (${this.clientId.substring(0, 10)}...)` : '❌ Missing');
@@ -721,6 +724,193 @@ class PipedreamService {
       message: `✅ Connected as ${authStatus.userAuth.name} (${authStatus.userAuth.email})`,
       connectedAt: authStatus.userAuth.connectedAt,
       userId: authStatus.userAuth.pipedreamUserId
+    };
+  }
+
+  // ===== USER CONNECTION MANAGEMENT =====
+
+  // Get user's connected apps
+  async getUserConnections(userId) {
+    console.log('🔍 Getting user connections for:', userId);
+
+    try {
+      // In production, this would query Pipedream API to get actual connections
+      // For now, we'll use our local tracking + simulate API call
+
+      const response = await axios.get(`${this.apiBase}/connect/${this.projectId}/accounts`, {
+        headers: {
+          'Authorization': `Bearer ${await this.getAccessToken()}`,
+          'Content-Type': 'application/json'
+        },
+        params: {
+          external_user_id: userId
+        }
+      });
+
+      console.log('✅ User connections retrieved:', response.data);
+
+      // Update our local cache
+      this.userConnections.set(userId, {
+        connections: response.data.accounts || [],
+        lastUpdated: new Date().toISOString()
+      });
+
+      return response.data.accounts || [];
+
+    } catch (error) {
+      console.log('⚠️ Could not fetch from Pipedream API, using local cache');
+      console.log('   Error:', error.message);
+
+      // Fallback to local cache
+      const cached = this.userConnections.get(userId);
+      return cached ? cached.connections : [];
+    }
+  }
+
+  // Add a connection for user (called after successful auth)
+  addUserConnection(userId, appName, connectionData = {}) {
+    console.log('➕ Adding connection for user:', userId, 'app:', appName);
+
+    const existing = this.userConnections.get(userId) || { connections: [], lastUpdated: null };
+
+    // Check if connection already exists
+    const existingIndex = existing.connections.findIndex(conn => conn.app === appName);
+
+    const connectionInfo = {
+      app: appName,
+      connected_at: new Date().toISOString(),
+      status: 'connected',
+      account_id: connectionData.account_id || `acc_${Date.now()}`,
+      ...connectionData
+    };
+
+    if (existingIndex >= 0) {
+      // Update existing connection
+      existing.connections[existingIndex] = connectionInfo;
+      console.log('🔄 Updated existing connection');
+    } else {
+      // Add new connection
+      existing.connections.push(connectionInfo);
+      console.log('✅ Added new connection');
+    }
+
+    existing.lastUpdated = new Date().toISOString();
+    this.userConnections.set(userId, existing);
+
+    console.log('📊 User now has', existing.connections.length, 'connections');
+    return connectionInfo;
+  }
+
+  // Remove a connection for user
+  async removeUserConnection(userId, appName) {
+    console.log('🗑️ Removing connection for user:', userId, 'app:', appName);
+
+    try {
+      // In production, call Pipedream API to disconnect
+      // For now, we'll simulate the API call and update local cache
+
+      const existing = this.userConnections.get(userId) || { connections: [], lastUpdated: null };
+      const connectionIndex = existing.connections.findIndex(conn => conn.app === appName);
+
+      if (connectionIndex === -1) {
+        console.log('❌ Connection not found');
+        return { success: false, message: 'Connection not found' };
+      }
+
+      const connection = existing.connections[connectionIndex];
+
+      // TODO: In production, make API call to Pipedream to disconnect
+      // await axios.delete(`${this.apiBase}/connect/${this.projectId}/accounts/${connection.account_id}`, {
+      //   headers: { 'Authorization': `Bearer ${await this.getAccessToken()}` }
+      // });
+
+      // Remove from local cache
+      existing.connections.splice(connectionIndex, 1);
+      existing.lastUpdated = new Date().toISOString();
+      this.userConnections.set(userId, existing);
+
+      console.log('✅ Connection removed successfully');
+      console.log('📊 User now has', existing.connections.length, 'connections');
+
+      return {
+        success: true,
+        message: `${appName} disconnected successfully`,
+        remainingConnections: existing.connections.length
+      };
+
+    } catch (error) {
+      console.error('❌ Error removing connection:', error.message);
+      return { success: false, message: 'Failed to disconnect. Please try again.' };
+    }
+  }
+
+  // Get list of connected app names for search API
+  getConnectedAppsForSearch(userId) {
+    console.log('🔍 Getting connected apps for search API, user:', userId);
+
+    const userConnections = this.userConnections.get(userId);
+    if (!userConnections || !userConnections.connections.length) {
+      console.log('📋 No connections found, using default apps');
+      return ["google_drive", "slack", "dropbox", "jira", "zendesk", "document360"];
+    }
+
+    const connectedApps = userConnections.connections
+      .filter(conn => conn.status === 'connected')
+      .map(conn => this.mapAppNameForSearch(conn.app));
+
+    // Always include Slack as it's internal
+    if (!connectedApps.includes('slack')) {
+      connectedApps.push('slack');
+    }
+
+    console.log('📊 Connected apps for search:', connectedApps);
+    return connectedApps;
+  }
+
+  // Map Pipedream app names to search API app names
+  mapAppNameForSearch(pipedreamAppName) {
+    const mapping = {
+      'google_drive': 'google_drive',
+      'gmail': 'gmail',
+      'dropbox': 'dropbox',
+      'jira': 'jira',
+      'confluence': 'confluence',
+      'microsoft_teams': 'microsoft_teams',
+      'microsoft_sharepoint': 'sharepoint',
+      'document_360': 'document360',
+      'github': 'github',
+      'notion': 'notion',
+      'airtable': 'airtable',
+      'zendesk': 'zendesk'
+    };
+
+    return mapping[pipedreamAppName] || pipedreamAppName;
+  }
+
+  // Check if user has specific app connected
+  isAppConnected(userId, appName) {
+    const userConnections = this.userConnections.get(userId);
+    if (!userConnections) return false;
+
+    return userConnections.connections.some(conn =>
+      conn.app === appName && conn.status === 'connected'
+    );
+  }
+
+  // Get connection statistics
+  getConnectionStats(userId) {
+    const userConnections = this.userConnections.get(userId);
+    if (!userConnections) {
+      return { total: 0, connected: 0, lastUpdated: null };
+    }
+
+    const connected = userConnections.connections.filter(conn => conn.status === 'connected').length;
+
+    return {
+      total: userConnections.connections.length,
+      connected: connected,
+      lastUpdated: userConnections.lastUpdated,
+      connections: userConnections.connections
     };
   }
 }
