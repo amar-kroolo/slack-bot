@@ -130,105 +130,83 @@ router.get('/health', (req, res) => {
   });
 });
 
-// Pipedream Connect success callback
+// Enhanced Pipedream Connect success callback with real account ID tracking
 router.get('/pipedream/success', async (req, res) => {
   try {
-    console.log('✅ Pipedream Connect success callback received');
-    console.log('   Query params:', req.query);
+    console.log('🎉 PIPEDREAM CONNECTION SUCCESS!');
+    console.log('📊 Query params:', req.query);
+    console.log('📊 Headers:', req.headers);
 
-    const { external_user_id, account_id, app } = req.query;
-    let userEmail = null;
-    let connectionDetails = null;
-
+    const { external_user_id, account_id, app, token } = req.query;
+    
     if (external_user_id && account_id) {
-      console.log('🔗 Processing successful connection:');
-      console.log('   External User ID:', external_user_id);
-      console.log('   Account ID:', account_id);
-      console.log('   App:', app || 'Unknown');
+      console.log('✅ REAL CONNECTION DETECTED:');
+      console.log('   👤 User:', external_user_id);
+      console.log('   🔗 Account ID:', account_id);
+      console.log('   📱 App:', app || 'Unknown');
+      console.log('   🎯 Token:', token ? `${token.substring(0, 20)}...` : 'No token');
 
-      try {
-        // Store the connection in our service
-        const pipedreamService = require('../services/pipedreamService');
-        await pipedreamService.storeUserConnection(external_user_id, account_id, app);
+      // Store the REAL connection immediately (like your frontend onSuccess callback)
+      const pipedreamService = require('../services/pipedreamService');
 
-        // Extract user email from account credentials for dynamic API calls
-        const accountCredentials = await pipedreamService.getAccountCredentials(account_id);
-        userEmail = accountCredentials.email;
-        connectionDetails = {
-          account_id,
-          app: app || 'Unknown',
-          email: userEmail,
-          connected_at: new Date().toISOString()
-        };
+      // Map app name to match your frontend logic
+      let appSlug = app;
+      if (app === 'Google Drive') appSlug = 'google_drive';
+      if (app === 'Microsoft Teams') appSlug = 'microsoft_teams';
+      if (app === 'Document 360') appSlug = 'document360';
 
-        console.log('✅ Account credentials retrieved successfully');
-        console.log('   📧 User Email extracted:', userEmail);
-        console.log('   🔧 This email will be used for dynamic API calls');
+      const storeResult = await pipedreamService.storeRealConnection(
+        external_user_id,
+        appSlug,
+        account_id,
+        null // email will be extracted from user context
+      );
 
-        // Store the email for future API calls (you can implement persistent storage here)
-        // For now, we'll use it in the response
+      if (storeResult.success) {
+        console.log('✅ Real connection stored successfully!');
+        console.log('   📊 Total connections for user:', storeResult.total_connections);
 
-      } catch (connectionError) {
-        console.error('⚠️ Error extracting user credentials:', connectionError.message);
-        // Continue anyway - connection might still work
+        // Notify the user in Slack about successful connection
+        await pipedreamService.notifyConnectionSuccess(external_user_id, appSlug, account_id);
+      } else {
+        console.error('❌ Failed to store real connection:', storeResult.error);
       }
     }
 
-    // Success response with connection details
+    // Show success page
     res.send(`
+      <!DOCTYPE html>
       <html>
         <head>
-          <title>Pipedream Connection Successful</title>
+          <title>Connection Successful!</title>
           <style>
-            body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f8f9fa; }
-            .container { max-width: 500px; margin: 0 auto; background: white; padding: 40px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-            .success { color: #27ae60; font-size: 48px; margin-bottom: 20px; }
-            .title { color: #2c3e50; margin-bottom: 15px; }
-            .subtitle { color: #7f8c8d; margin-bottom: 30px; }
-            .details { background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0; text-align: left; }
-            .button { padding: 12px 24px; background: #27ae60; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
-            .button:hover { background: #219a52; }
+            body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+            .success { color: #27ae60; font-size: 48px; }
+            .details { background: #f8f9fa; padding: 20px; margin: 20px; border-radius: 8px; }
           </style>
         </head>
         <body>
-          <div class="container">
-            <div class="success">🎉</div>
-            <h1 class="title">Pipedream Connected Successfully!</h1>
-            <p class="subtitle">Your account has been connected and you can now use dynamic tool access.</p>
-
-            ${external_user_id ? `
-              <div class="details">
-                <strong>Connection Details:</strong><br>
-                👤 User ID: ${external_user_id}<br>
-                🔗 Account ID: ${account_id || 'N/A'}<br>
-                📱 App: ${app || 'General Connection'}<br>
-                ${userEmail ? `📧 Email: ${userEmail}<br>` : ''}
-                ${userEmail ? `🎯 <strong>This email will be used for dynamic API calls!</strong>` : ''}
-              </div>
-            ` : ''}
-
-            <p><strong>Next Steps:</strong></p>
-            <ul style="text-align: left; display: inline-block;">
-              <li>Return to Slack</li>
-              <li>Try: <code>@SmartBot pipedream status</code></li>
-              <li>Try: <code>@SmartBot search for documents</code></li>
-            </ul>
-
-            <button class="button" onclick="window.close()">Close & Return to Slack</button>
+          <div class="success">🎉</div>
+          <h1>Successfully Connected!</h1>
+          <p>Your ${app || 'tool'} account has been connected successfully.</p>
+          
+          <div class="details">
+            <strong>Connection Details:</strong><br>
+            👤 User: ${external_user_id}<br>
+            🔗 Account ID: ${account_id}<br>
+            📱 App: ${app || 'General'}<br>
+            ⏰ Connected: ${new Date().toLocaleString()}
           </div>
-          <script>
-            // Auto-close after 10 seconds
-            setTimeout(() => {
-              window.close();
-            }, 10000);
-          </script>
+          
+          <p>You can now close this window and return to Slack.</p>
+          <p>Your bot will now use this real account ID for searches!</p>
         </body>
       </html>
     `);
 
   } catch (error) {
-    console.error('❌ Pipedream success callback error:', error.message);
-    res.redirect('/auth/pipedream/error?message=' + encodeURIComponent(error.message));
+    console.error('❌ Error in success callback:', error.message);
+    res.status(500).send('Error processing connection');
   }
 });
 

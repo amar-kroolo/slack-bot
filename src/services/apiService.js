@@ -39,7 +39,7 @@ class ApiService {
     );
   }
 
-  async callAPI(apiName, parameters = {}, slackUserId = null) {
+  async callAPI(apiName, parameters = {}, slackUserId = null, slackEmail = null) {
     try {
       console.log('\n🌐 ===== API SERVICE CALL =====');
       console.log('📡 API Endpoint:', apiName);
@@ -76,15 +76,57 @@ class ApiService {
       if (apiConfig.requiresAuth) {
         console.log('🔐 Applying Dynamic RBAC Security...');
 
-        // Get dynamic credentials based on user authentication (now async)
-        const dynamicCredentials = await pipedreamService.getDynamicCredentials(slackUserId);
-        console.log('👤 User Credentials:', {
-          dynamic: dynamicCredentials.dynamic,
-          email: dynamicCredentials.user_email,
-          userId: dynamicCredentials.external_user_id,
-          accountCount: dynamicCredentials.account_ids.length,
-          totalAccounts: dynamicCredentials.total_accounts || 'N/A'
-        });
+        // Get dynamic credentials with enhanced fallback strategy
+        let dynamicCredentials;
+        try {
+          console.log('🎯 Attempting to get dynamic credentials...');
+          dynamicCredentials = await pipedreamService.getDynamicCredentials(slackUserId, slackEmail);
+
+          console.log('👤 User Credentials Retrieved:', {
+            dynamic: dynamicCredentials.dynamic,
+            email: dynamicCredentials.user_email,
+            userId: dynamicCredentials.external_user_id,
+            accountCount: dynamicCredentials.account_ids.length,
+            totalAccounts: dynamicCredentials.total_accounts || 'N/A',
+            authSource: dynamicCredentials.auth_source,
+            emailSource: dynamicCredentials.email_source,
+            externalUserIdSource: dynamicCredentials.external_user_id_source,
+            tokensExtracted: dynamicCredentials.auth_tokens?.extracted_tokens || 0,
+            fallbackReason: dynamicCredentials.fallback_reason || 'none'
+          });
+
+          // Log authentication quality
+          if (dynamicCredentials.dynamic) {
+            console.log('✅ AUTHENTICATION QUALITY: Dynamic credentials successfully obtained');
+            console.log('   🔐 Auth Source:', dynamicCredentials.auth_source);
+            console.log('   📧 Email Source:', dynamicCredentials.email_source);
+            console.log('   🆔 User ID Source:', dynamicCredentials.external_user_id_source);
+          } else {
+            console.log('⚠️ AUTHENTICATION QUALITY: Using static fallback credentials');
+            console.log('   ⚠️ Fallback Reason:', dynamicCredentials.fallback_reason);
+            console.log('   💡 Recommendation: User should connect their Pipedream account');
+          }
+
+        } catch (credentialError) {
+          console.error('❌ CRITICAL: Failed to get any credentials:', credentialError.message);
+          console.log('🚨 EMERGENCY FALLBACK: Using hardcoded static credentials');
+
+          // Emergency fallback to prevent complete failure
+          dynamicCredentials = {
+            external_user_id: "686652ee4314417de20af851",
+            user_email: slackEmail || "ayush.enterprise.search@gmail.com",
+            account_ids: [
+              "apn_XehedEz", "apn_Xehed1w", "apn_yghjwOb",
+              "apn_7rhaEpm", "apn_x7hrxmn", "apn_arhpXvr"
+            ],
+            dynamic: false,
+            auth_source: 'emergency_fallback',
+            email_source: slackEmail ? 'slack_emergency' : 'static_emergency',
+            external_user_id_source: 'static_emergency',
+            fallback_reason: 'credential_service_failure',
+            error: credentialError.message
+          };
+        }
 
         const requestBody = {
           account_ids: dynamicCredentials.account_ids,
@@ -96,10 +138,15 @@ class ApiService {
         // Add dynamic connected apps for search queries
         if (apiName === 'search' && !requestBody.apps) {
           console.log('📱 Getting user\'s connected apps for search query');
-          const connectedApps = pipedreamService.getConnectedAppsForSearch(dynamicCredentials.external_user_id);
-          requestBody.apps = connectedApps;
-          console.log('🔗 Using connected apps:', connectedApps);
-          console.log('📊 Total apps in search:', connectedApps.length);
+          try {
+            const connectedApps = await pipedreamService.getConnectedAppsForSearch(dynamicCredentials.external_user_id);
+            requestBody.apps = connectedApps;
+            console.log('🔗 Using connected apps:', connectedApps);
+            console.log('📊 Total apps in search:', connectedApps.length);
+          } catch (error) {
+            console.error('⚠️ Failed to get connected apps, using default:', error.message);
+            requestBody.apps = ["google_drive", "slack", "dropbox", "jira", "zendesk", "document360"];
+          }
         }
 
         console.log('📤 Complete Request Body:');
@@ -175,24 +222,89 @@ class ApiService {
 
     } catch (error) {
       console.error(`Error calling ${apiName} API:`, error);
-      
+
       if (error.response) {
         // API responded with error status
+        const status = error.response.status;
+        const statusText = error.response.statusText;
+
+        // Handle specific HTTP status codes with user-friendly messages
+        if (status === 503) {
+          console.error('🚨 SERVICE UNAVAILABLE: The API server is temporarily down');
+          console.error('   This is usually a temporary issue with the API service');
+          console.error('   Please try again in a few minutes');
+
+          return {
+            error: `🚨 Search service is temporarily unavailable (503). This is usually temporary - please try again in a few minutes.`,
+            status: status,
+            details: error.response.data
+          };
+        } else if (status === 500) {
+          console.error('🚨 SERVER ERROR: Internal server error');
+          return {
+            error: `🚨 Search service encountered an internal error (500). Please try again later.`,
+            status: status,
+            details: error.response.data
+          };
+        } else if (status === 404) {
+          console.error('🚨 NOT FOUND: API endpoint not found');
+          return {
+            error: `🚨 Search endpoint not found (404). Please check the API configuration.`,
+            status: status,
+            details: error.response.data
+          };
+        } else if (status === 401) {
+          console.error('🚨 UNAUTHORIZED: Authentication failed');
+          return {
+            error: `🚨 Authentication failed (401). Please check your API credentials.`,
+            status: status,
+            details: error.response.data
+          };
+        } else if (status === 403) {
+          console.error('🚨 FORBIDDEN: Access denied');
+          return {
+            error: `🚨 Access denied (403). You don't have permission to access this resource.`,
+            status: status,
+            details: error.response.data
+          };
+        }
+
+        // Generic error for other status codes
         return {
-          error: `API Error (${error.response.status}): ${error.response.data?.message || error.response.statusText}`,
-          status: error.response.status,
+          error: `API Error (${status}): ${error.response.data?.message || statusText}`,
+          status: status,
           details: error.response.data
         };
       } else if (error.request) {
         // Request was made but no response received
+        if (error.code === 'ECONNREFUSED') {
+          console.error('🚨 CONNECTION REFUSED: Cannot connect to API server');
+          return {
+            error: '🚨 Cannot connect to search service. The server might be down - please try again later.',
+            details: error.message
+          };
+        } else if (error.code === 'ENOTFOUND') {
+          console.error('🚨 DNS ERROR: API server not found');
+          return {
+            error: '🚨 Search service not found. Please check your internet connection.',
+            details: error.message
+          };
+        } else if (error.code === 'ETIMEDOUT') {
+          console.error('🚨 TIMEOUT: API request timed out');
+          return {
+            error: '🚨 Search request timed out. The service might be slow - please try again.',
+            details: error.message
+          };
+        }
+
         return {
-          error: 'No response from API server. Please check if the API is running.',
+          error: '🚨 No response from search service. Please check if the service is running.',
           details: error.message
         };
       } else {
         // Something else happened
         return {
-          error: `Request failed: ${error.message}`,
+          error: `🚨 Request failed: ${error.message}`,
           details: error.message
         };
       }

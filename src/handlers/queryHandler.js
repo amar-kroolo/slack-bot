@@ -38,6 +38,16 @@ class QueryHandler {
         return await this.handleSlackCommand(slackCommand, slackUserId);
       }
 
+      // Check if this is a tool status command
+      if (query.toLowerCase().includes('tool status') ||
+          query.toLowerCase().includes('tools status') ||
+          query.toLowerCase().includes('status tools') ||
+          query.toLowerCase().includes('connection status') ||
+          query.toLowerCase().includes('show connections')) {
+        console.log('🔧 Tool status command detected');
+        return await this.handleToolStatusCommand(slackUserId, userContext);
+      }
+
       // Step 1: Parse the natural language query with enhanced NLP
       console.log('\n📊 STEP 1: Starting Query Parsing...');
       const parsedQuery = await this.parseQuery(query);
@@ -85,7 +95,8 @@ class QueryHandler {
       const apiResponse = await apiService.callAPI(
         parsedQuery.api,
         parsedQuery.parameters,
-        slackUserId
+        slackUserId,
+        userContext.slackEmail
       );
       const apiDuration = Date.now() - apiStartTime;
 
@@ -454,6 +465,70 @@ class QueryHandler {
       console.error('❌ Error handling Slack command:', error.message);
       return {
         error: `Error processing Slack command: ${error.message}`
+      };
+    }
+  }
+
+  // Handle tool status command
+  async handleToolStatusCommand(slackUserId, userContext) {
+    try {
+      console.log('🔧 Processing tool status command for user:', slackUserId);
+
+      const pipedreamService = require('../services/pipedreamService');
+      const realStatus = await pipedreamService.getUserStatus(slackUserId);
+
+      let statusMessage = `🔧 *Tool Connection Status*\n\n`;
+
+      if (realStatus.connected && realStatus.account_ids.length > 0) {
+        statusMessage += `✅ *${realStatus.total_accounts} Tools Connected*\n\n`;
+
+        // Show each connected tool
+        realStatus.pipedream_accounts.forEach((account, index) => {
+          const statusIcon = account.connected ? '✅' : '❌';
+          statusMessage += `${statusIcon} **${account.app || account.name}**\n`;
+          statusMessage += `   • Account ID: \`${account.account_id || account.id}\`\n`;
+          statusMessage += `   • Status: ${account.connected ? 'Connected' : 'Disconnected'}\n\n`;
+        });
+
+        statusMessage += `\n🎯 *Real Account IDs in API Calls:*\n`;
+        statusMessage += `\`\`\`json\n`;
+        statusMessage += `"account_ids": [\n`;
+        realStatus.account_ids.forEach((id, index) => {
+          statusMessage += `  "${id}"${index < realStatus.account_ids.length - 1 ? ',' : ''}\n`;
+        });
+        statusMessage += `]\n\`\`\`\n`;
+        statusMessage += `\n📊 Search queries will use these ${realStatus.total_accounts} connected tools only.`;
+      } else {
+        statusMessage += `⚠️ *No Real Connections Found*\n\n`;
+        statusMessage += `Currently using static fallback account IDs:\n`;
+        statusMessage += `• \`apn_XehedEz\`\n• \`apn_Xehed1w\`\n• \`apn_yghjwOb\`\n• \`apn_7rhaEpm\`\n• \`apn_x7hrxmn\`\n• \`apn_arhpXvr\`\n\n`;
+        statusMessage += `💡 Connect tools via Pipedream to get personalized account IDs.\n\n`;
+        statusMessage += `🔗 Use "connect tools" command to start connecting your tools.`;
+      }
+
+      return {
+        response_type: 'ephemeral',
+        text: statusMessage,
+        attachments: [{
+          color: realStatus.connected ? 'good' : 'warning',
+          title: realStatus.connected ? '✅ Dynamic Account IDs Active' : '⚠️ Using Static Fallback',
+          text: realStatus.connected ?
+            `Your search queries use real account IDs from ${realStatus.total_accounts} connected tools.` :
+            'Connect tools via Pipedream to enable personalized search with real account IDs.',
+          footer: `User: ${slackUserId} | Email: ${userContext.slackEmail || 'Not extracted'}`
+        }]
+      };
+    } catch (error) {
+      console.error('❌ Error processing tool status command:', error);
+      return {
+        response_type: 'ephemeral',
+        text: '❌ Error retrieving tool status. Please try again.',
+        attachments: [{
+          color: 'danger',
+          title: 'Error',
+          text: `Failed to retrieve tool connection status: ${error.message}`,
+          footer: 'Please try again or contact support'
+        }]
       };
     }
   }
