@@ -1,9 +1,14 @@
-// Enhanced AI-Powered Natural Language Processing Service with System Instructions
+// Enhanced AI-Powered Natural Language Processing Service with System Instructions and OpenAI Fallback
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const OpenAI = require('openai');
 
 class NlpService {
   constructor() {
-    this.initializeGemini();
+    this.geminiModel = null;
+    this.openaiClient = null;
+    this.activeProvider = null;
+    
+    this.initializeModels();
 
     this.conversationContext = {
       lastQuery: null,
@@ -23,27 +28,56 @@ class NlpService {
     };
   }
 
+  initializeModels() {
+    // Try to initialize Gemini first
+    this.initializeGemini();
+    
+    // If Gemini fails, initialize OpenAI as fallback
+    if (!this.geminiModel) {
+      this.initializeOpenAI();
+    }
+  }
+
   initializeGemini() {
     if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'your-gemini-api-key-here') {
       try {
-        this.gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        this.geminiModel = this.gemini.getGenerativeModel({
+        const gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        this.geminiModel = gemini.getGenerativeModel({
           model: process.env.AI_MODEL_GEMINI || 'gemini-pro',
           systemInstruction: this.getSystemInstruction()
         });
+        this.activeProvider = 'gemini';
         console.log('🧠 Gemini initialized successfully with system instructions');
       } catch (e) {
         console.error('❌ Gemini initialization failed:', e.message);
-        this.gemini = null;
+        this.geminiModel = null;
       }
     } else {
-      this.gemini = null;
-      console.error('❌ Gemini API key not set or invalid.');
+      console.log('⚠️ Gemini API key not set or invalid, trying OpenAI fallback...');
+      this.geminiModel = null;
+    }
+  }
+
+  initializeOpenAI() {
+    if (process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'your-openai-api-key-here') {
+      try {
+        this.openaiClient = new OpenAI({
+          apiKey: process.env.OPENAI_API_KEY
+        });
+        this.activeProvider = 'openai';
+        console.log('🤖 OpenAI initialized successfully as fallback');
+      } catch (e) {
+        console.error('❌ OpenAI initialization failed:', e.message);
+        this.openaiClient = null;
+      }
+    } else {
+      console.error('❌ OpenAI API key not set or invalid.');
+      this.openaiClient = null;
     }
   }
 
   getSystemInstruction() {
-    return `You are an intelligent Enterprise Search Assistant. Your primary role is to help users find information across various enterprise platforms including Google Drive, Slack, Dropbox, JIRA, Zendesk, and Document360.
+    return `You are an AI Assitant. Your primary role is to help users find information across various enterprise platforms including Google Drive, Slack, Dropbox, JIRA, Zendesk, and Document360.
 
 CORE RESPONSIBILITIES:
 1. Analyze user queries to determine if they relate to enterprise search functionality
@@ -65,7 +99,7 @@ RESPONSE GUIDELINES:
 - Use context from previous interactions when relevant
 
 CRITICAL JSON FORMATTING RULES:
-- NEVER use markdown code fences 
+- NEVER use markdown code fences (\`\`\`)
 - NEVER wrap JSON in code blocks
 - Always respond with pure, clean JSON only
 - No explanatory text before or after the JSON
@@ -78,80 +112,137 @@ CONTEXT AWARENESS:
   }
 
   async parseQuery(query) {
-    console.log('\n🧠 ===== INTENT ENGINE NLP SERVICE PROCESSING (GEMINI ONLY) =====');
+    console.log('\n🧠 ===== INTENT ENGINE NLP SERVICE PROCESSING =====');
     console.log('📝 Input Query:', `"${query}"`);
+    console.log('🤖 Active Provider:', this.activeProvider || 'None');
     console.log('⏰ NLP Start Time:', new Date().toISOString());
 
-    if (!this.geminiModel) {
-      console.error('❌ Gemini model not initialized.');
+    // Check if any model is available
+    if (!this.geminiModel && !this.openaiClient) {
+      console.error('❌ No AI models initialized.');
       return this.buildMessageResponse('AI service unavailable. Please try again later.');
     }
 
     try {
-      // Create context-aware prompt
-      const contextualPrompt = this.createContextualPrompt(query);
+      let response;
       
-      const result = await this.geminiModel.generateContent(contextualPrompt);
-      let text = result.response.text().trim(); // Removed regex cleaning since system instruction prevents markdown
-
-      let parsed;
-      try {
-        parsed = JSON.parse(text);
-      } catch (err) {
-        console.error('❌ Failed to parse Gemini JSON:', text);
-        // FIXED: Return safe message response instead of async call
-        return this.buildMessageResponse(
-          "Hello! I'm your enterprise search assistant. I can help you find documents, view your search history, get recommendations, and more. What would you like to search for?"
-        );
-      }
-
-      // Handle enterprise search intents
-      if (parsed.intent && this.intentCategories[parsed.intent]) {
-        const intentInfo = this.intentCategories[parsed.intent];
-        if (parsed.confidence >= intentInfo.confidenceThreshold) {
-          const parameters = parsed.parameters || {};
-          this.updateContext(query, intentInfo.api, parsed.intent);
-          return {
-            api: intentInfo.api,
-            parameters,
-            confidence: parsed.confidence,
-            intent: parsed.intent,
-            reasoning: parsed.reasoning || 'Intent detected successfully',
-            type: 'actionable'
-          };
-        } else {
-          // FIXED: Low confidence - return safe message response
-          return this.buildMessageResponse(
-            `I think you might be asking about ${parsed.intent}, but I'm not completely sure. Could you please rephrase your request? For example, you can ask me to 'search for project reports' or 'show my recent searches'.`
-          );
+      // Try Gemini first if available
+      if (this.geminiModel) {
+        try {
+          response = await this.processWithGemini(query);
+        } catch (error) {
+          console.error('❌ Gemini processing failed:', error.message);
+          console.log('🔄 Falling back to OpenAI...');
+          
+          // Initialize OpenAI if not already done
+          if (!this.openaiClient) {
+            this.initializeOpenAI();
+          }
+          
+          if (this.openaiClient) {
+            response = await this.processWithOpenAI(query);
+          } else {
+            throw new Error('Both Gemini and OpenAI failed');
+          }
         }
+      } 
+      // Use OpenAI if Gemini is not available
+      else if (this.openaiClient) {
+        response = await this.processWithOpenAI(query);
       }
 
-      // FIXED: Handle general conversation or unknown intents with safe response
-      if (parsed.message) {
-        return this.buildMessageResponse(parsed.message);
-      }
-
-      // FIXED: Final fallback with safe response
-      return this.buildMessageResponse(
-        "Hello! I'm your enterprise search assistant. I can help you find documents across Google Drive, Slack, Dropbox, JIRA, Zendesk, and Document360. How can I assist you today?"
-      );
+      return response;
 
     } catch (error) {
-      console.error('❌ Gemini Error Details:', error);
+      console.error('❌ All AI providers failed:', error);
       return this.buildMessageResponse('AI service error. Please try again later.');
     }
   }
 
-  // NEW: Helper method to ensure consistent message response structure
+  async processWithGemini(query) {
+    const contextualPrompt = this.createContextualPrompt(query);
+    const result = await this.geminiModel.generateContent(contextualPrompt);
+    let text = result.response.text().trim();
+
+    return this.parseAIResponse(text, query);
+  }
+
+  async processWithOpenAI(query) {
+    const contextualPrompt = this.createContextualPrompt(query);
+    
+    const completion = await this.openaiClient.chat.completions.create({
+      model: process.env.AI_MODEL_OPENAI || 'gpt-3.5-turbo',
+      messages: [
+        {
+          role: 'system',
+          content: this.getSystemInstruction()
+        },
+        {
+          role: 'user',
+          content: contextualPrompt
+        }
+      ],
+      temperature: 0.7,
+      max_tokens: 1000
+    });
+
+    const text = completion.choices[0].message.content.trim();
+    return this.parseAIResponse(text, query);
+  }
+
+  parseAIResponse(text, query) {
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch (err) {
+      console.error('❌ Failed to parse AI JSON:', text);
+      return this.buildMessageResponse(
+        "Hello! I'm your AI Assistant. I can help you find documents, view your search history, get recommendations, and more. What would you like to search for?"
+      );
+    }
+
+    // Handle enterprise search intents
+    if (parsed.intent && this.intentCategories[parsed.intent]) {
+      const intentInfo = this.intentCategories[parsed.intent];
+      if (parsed.confidence >= intentInfo.confidenceThreshold) {
+        const parameters = parsed.parameters || {};
+        this.updateContext(query, intentInfo.api, parsed.intent);
+        return {
+          api: intentInfo.api,
+          parameters,
+          confidence: parsed.confidence,
+          intent: parsed.intent,
+          reasoning: parsed.reasoning || 'Intent detected successfully',
+          type: 'actionable',
+          provider: this.activeProvider
+        };
+      } else {
+        return this.buildMessageResponse(
+          `I think you might be asking about ${parsed.intent}, but I'm not completely sure. Could you please rephrase your request? For example, you can ask me to 'search for project reports' or 'show my recent searches'.`
+        );
+      }
+    }
+
+    // Handle general conversation or unknown intents
+    if (parsed.message) {
+      return this.buildMessageResponse(parsed.message);
+    }
+
+    // Final fallback
+    return this.buildMessageResponse(
+      "Hello! I'm your AI Assistant. I can help you find documents across Google Drive, Slack, Dropbox, JIRA, Zendesk, and Document360. How can I assist you today?"
+    );
+  }
+
   buildMessageResponse(messageText) {
     return {
-      api: '_none',                    // Safe placeholder, never undefined
-      parameters: null,                // Safe placeholder, never undefined
-      confidence: 1.0,                 // Safe placeholder, never undefined
-      intent: 'GENERAL_MESSAGE',       // Safe placeholder, never undefined
+      api: '_none',
+      parameters: null,
+      confidence: 1.0,
+      intent: 'GENERAL_MESSAGE',
       message: messageText,
-      type: 'message'                  // Indicates this is a conversational response
+      type: 'message',
+      provider: this.activeProvider || 'fallback'
     };
   }
 
@@ -180,7 +271,7 @@ INSTRUCTIONS:
   "message": "Your helpful, contextual response that acknowledges the query and guides toward enterprise search capabilities"
 }
 
-IMPORTANT: Return ONLY the JSON object. No explanatory text, no code fences , no markdown formatting. Just pure, clean JSON.`;
+IMPORTANT: Return ONLY the JSON object. No explanatory text, no code fences, no markdown formatting. Just pure, clean JSON.`;
   }
 
   async generateContextualResponse(query) {
@@ -195,8 +286,19 @@ This doesn't seem to be related to enterprise search. Generate a helpful, contex
 
 Respond with PURE JSON only (no code fences, no markdown): {"message": "your response"}`;
 
-      const result = await this.geminiModel.generateContent(contextPrompt);
-      let text = result.response.text().trim();
+      let text;
+      if (this.geminiModel) {
+        const result = await this.geminiModel.generateContent(contextPrompt);
+        text = result.response.text().trim();
+      } else if (this.openaiClient) {
+        const completion = await this.openaiClient.chat.completions.create({
+          model: process.env.AI_MODEL_OPENAI || 'gpt-3.5-turbo',
+          messages: [{ role: 'user', content: contextPrompt }],
+          temperature: 0.7,
+          max_tokens: 200
+        });
+        text = completion.choices[0].message.content.trim();
+      }
       
       try {
         const parsed = JSON.parse(text);
@@ -226,8 +328,19 @@ Generate a helpful clarification response that:
 
 Respond with PURE JSON only (no code fences, no markdown): {"message": "your clarification request"}`;
 
-      const result = await this.geminiModel.generateContent(clarificationPrompt);
-      let text = result.response.text().trim();
+      let text;
+      if (this.geminiModel) {
+        const result = await this.geminiModel.generateContent(clarificationPrompt);
+        text = result.response.text().trim();
+      } else if (this.openaiClient) {
+        const completion = await this.openaiClient.chat.completions.create({
+          model: process.env.AI_MODEL_OPENAI || 'gpt-3.5-turbo',
+          messages: [{ role: 'user', content: clarificationPrompt }],
+          temperature: 0.7,
+          max_tokens: 200
+        });
+        text = completion.choices[0].message.content.trim();
+      }
       
       try {
         const parsed = JSON.parse(text);
@@ -267,7 +380,6 @@ Respond with PURE JSON only (no code fences, no markdown): {"message": "your cla
       timestamp: Date.now() 
     });
     
-    // Keep only last 10 interactions to prevent memory overflow
     if (this.conversationContext.intentHistory.length > 10) {
       this.conversationContext.intentHistory = this.conversationContext.intentHistory.slice(-10);
     }
@@ -278,11 +390,11 @@ Respond with PURE JSON only (no code fences, no markdown): {"message": "your cla
     console.log('💾 Context updated:', { 
       query: query.substring(0, 30), 
       api, 
-      intent 
+      intent,
+      provider: this.activeProvider
     });
   }
 
-  // NEW: Method to get analytics about user behavior
   getAnalytics() {
     return {
       totalInteractions: this.conversationContext.intentHistory.length,
@@ -290,11 +402,11 @@ Respond with PURE JSON only (no code fences, no markdown): {"message": "your cla
       topIntents: Object.entries(this.conversationContext.userPreferences)
         .sort(([,a], [,b]) => b - a)
         .slice(0, 3),
-      lastActivity: this.conversationContext.intentHistory.slice(-1)[0] || null
+      lastActivity: this.conversationContext.intentHistory.slice(-1)[0] || null,
+      activeProvider: this.activeProvider
     };
   }
 
-  // NEW: Method to reset conversation context
   resetContext() {
     this.conversationContext = {
       lastQuery: null,
@@ -305,6 +417,16 @@ Respond with PURE JSON only (no code fences, no markdown): {"message": "your cla
       sessionStartTime: Date.now()
     };
     console.log('🔄 Conversation context reset');
+  }
+
+  // NEW: Method to get current provider status
+  getProviderStatus() {
+    return {
+      geminiAvailable: !!this.geminiModel,
+      openaiAvailable: !!this.openaiClient,
+      activeProvider: this.activeProvider,
+      fallbackEnabled: !!(this.geminiModel && this.openaiClient)
+    };
   }
 }
 
