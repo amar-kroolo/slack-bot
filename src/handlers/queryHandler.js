@@ -229,7 +229,7 @@ class QueryHandler {
 
     return {
       response_type: 'ephemeral',
-      text: `👋 Hi ${userName}! I'm your Enterprise Search Assistant`,
+      text: `👋 Hi ${userName}! I'm your AI Assistant`,
       attachments: [{
         color: 'good',
         title: '🔍 What I Can Help You With',
@@ -287,12 +287,12 @@ class QueryHandler {
         fields: [
           {
             title: '🔗 Connect Your Tools',
-            value: 'Type: `@SmartBot connect tools`',
+            value: 'Type: `@Kroolo AI  connect tools`',
             short: true
           },
           {
             title: '🔍 Search Example',
-            value: 'Type: `@SmartBot search for quarterly reports`',
+            value: 'Type: `@Kroolo AI search for project reports`',
             short: true
           }
         ]

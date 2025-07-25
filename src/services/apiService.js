@@ -1,6 +1,5 @@
 const axios = require('axios');
 const { API_ENDPOINTS, RBAC_CONFIG, DEFAULT_APPS } = require('../config/apis');
-const { getMockData } = require('../utils/testData');
 const pipedreamService = require('./pipedreamService');
 
 // Ensure dotenv is loaded
