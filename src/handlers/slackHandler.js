@@ -1,249 +1,106 @@
-// Slack Integration Handler for Slack Commands
-// Handles authentication, connection management, and app setup for Slack
-// Similar to Pipedream handler but for Slack-specific app connections
-
-const slackService = require('../services/slackService');
-const userContextService = require('../services/userContextService');
+// Slack Integration Handler – *plain-text* responses only
+// NOTE: all business logic and service-calls remain unchanged.
+const slackService        = require('../services/slackService');
+const userContextService  = require('../services/userContextService');
 
 class SlackHandler {
   constructor() {
-    console.log('🔧 Slack Handler initialized');
+    console.log('🔧 Slack Handler initialised');
   }
 
-  // Handle "connect slack" command
+  /* ───────────────────────────── CONNECT ───────────────────────────── */
   async handleConnectCommand(slackUserId, userContext = null) {
     try {
       console.log('🔗 Processing Slack connect command for user:', slackUserId);
 
-      // Check if user is already connected
-      const connectionStatus = slackService.getConnectionStatus(slackUserId);
-      
-      if (connectionStatus.connected) {
-        console.log('✅ User already connected to Slack apps');
-        
-        // Show connected status with management options
+      const status = slackService.getConnectionStatus(slackUserId);
+
+      /* Already connected → tell the user and give simple tips */
+      if (status.connected) {
+        const scopes = status.scopes?.join(', ') || 'None';
         return {
           response_type: 'ephemeral',
-          text: '✅ Your Slack apps are already connected!',
-          attachments: [{
-            color: 'good',
-            title: 'Slack Apps Connected',
-            text: connectionStatus.message,
-            fields: [
-              {
-                title: '🏢 Team',
-                value: connectionStatus.teamName,
-                short: true
-              },
-              {
-                title: '🔗 Connected',
-                value: new Date(connectionStatus.connectedAt).toLocaleString(),
-                short: true
-              },
-              {
-                title: '🔐 Scopes',
-                value: connectionStatus.scopes.slice(0, 3).join(', ') + (connectionStatus.scopes.length > 3 ? '...' : ''),
-                short: false
-              }
-            ],
-            actions: [
-              {
-                type: 'button',
-                text: 'Disconnect',
-                name: 'disconnect_slack',
-                value: 'disconnect',
-                style: 'danger',
-                confirm: {
-                  title: 'Disconnect from Slack apps?',
-                  text: 'This will remove your enhanced Slack app access.',
-                  ok_text: 'Disconnect',
-                  dismiss_text: 'Cancel'
-                }
-              },
-              {
-                type: 'button',
-                text: 'Manage Apps',
-                name: 'manage_slack_apps',
-                value: 'manage',
-                style: 'primary'
-              }
-            ]
-          }]
+          text:
+            `✅ You already connected your Slack apps!\n\n` +
+            `• Team : *${status.teamName || 'Unknown'}*\n` +
+            `• Connected : ${new Date(status.connectedAt).toLocaleString()}\n` +
+            `• Scopes : ${scopes}\n\n` +
+            `👉 To disconnect run */disconnect slack*  – to manage apps run */slack apps*`
         };
       }
 
-      // Get popular Slack apps for quick connection
-      const popularApps = slackService.getPopularSlackApps();
-      
-      // Generate general auth URL
-      const authUrl = slackService.generateAuthURL(slackUserId, null, userContext);
+      /* Not connected yet → send OAuth link & quick-connect URLs */
+      const authUrl      = slackService.generateAuthURL(slackUserId, null, userContext);
+      const popularApps  = slackService.getPopularSlackApps().slice(0, 3);
+
+      let quickLinks = popularApps
+        .map(a => `• ${a.icon} *${a.name}*: <${slackService.createAppAuthURL(slackUserId, a.app_id, userContext)}|Connect>`)
+        .join('\n');
 
       return {
         response_type: 'ephemeral',
-        text: '🔗 Connect your Slack apps for enhanced functionality',
-        attachments: [{
-          color: '#4A154B', // Slack purple
-          title: 'Slack Apps Connect Ready',
-          text: 'Connect your Slack apps to enable:\n• Enhanced search across channels\n• File access and management\n• Message history search\n• App integrations',
-          actions: [
-            {
-              type: 'button',
-              text: 'Connect Slack Apps',
-              url: authUrl,
-              style: 'primary'
-            }
-          ],
-          footer: `🔒 Secure OAuth 2.0 authentication`
-        }, {
-          color: '#36a64f',
-          title: '💡 Quick Connect Options',
-          text: 'Popular Slack apps you can connect:',
-          fields: popularApps.slice(0, 4).map(app => ({
-            title: `${app.icon} ${app.name}`,
-            value: app.description,
-            short: true
-          })),
-          actions: [
-            {
-              type: 'button',
-              text: '💬 Workspace',
-              url: slackService.createAppAuthURL(slackUserId, 'slack_workspace', userContext),
-              style: 'default'
-            },
-            {
-              type: 'button',
-              text: '📁 Files',
-              url: slackService.createAppAuthURL(slackUserId, 'slack_files', userContext),
-              style: 'default'
-            },
-            {
-              type: 'button',
-              text: '📢 Channels',
-              url: slackService.createAppAuthURL(slackUserId, 'slack_channels', userContext),
-              style: 'default'
-            }
-          ]
-        }]
+        text:
+          `🔗 *Connect your Slack workspace apps*\n` +
+          `Click to authorise: <${authUrl}|Connect Slack Apps>\n\n` +
+          `Popular quick-connect options:\n${quickLinks}\n\n` +
+          `🔒 Uses secure OAuth 2.0`
       };
 
-    } catch (error) {
-      console.error('❌ Error in Slack connect command:', error.message);
+    } catch (err) {
+      console.error('❌ Slack connect error:', err);
       return {
         response_type: 'ephemeral',
-        text: `❌ Error connecting to Slack apps: ${error.message}`,
-        attachments: [{
-          color: 'danger',
-          title: 'Connection Error',
-          text: 'Please try again or contact support if the issue persists.',
-          actions: [
-            {
-              type: 'button',
-              text: 'Try Again',
-              name: 'retry_slack_connect',
-              value: 'retry',
-              style: 'primary'
-            }
-          ]
-        }]
+        text: `❌ Error connecting Slack apps: ${err.message}`
       };
     }
   }
 
-  // Handle "slack status" command
+  /* ───────────────────────────── STATUS ───────────────────────────── */
   async handleStatusCommand(slackUserId) {
     try {
-      console.log('📊 Getting Slack connection status for user:', slackUserId);
+      console.log('📊 Getting Slack status for', slackUserId);
 
-      const connectionStatus = slackService.getConnectionStatus(slackUserId);
+      const status          = slackService.getConnectionStatus(slackUserId);
       const userConnections = slackService.getUserConnections(slackUserId);
 
-      if (!connectionStatus.connected) {
+      if (!status.connected) {
         return {
           response_type: 'ephemeral',
-          text: '🔗 Slack Apps Status: Not Connected',
-          attachments: [{
-            color: 'warning',
-            title: 'No Slack App Connections',
-            text: 'You haven\'t connected any Slack apps yet.',
-            actions: [
-              {
-                type: 'button',
-                text: 'Connect Slack Apps',
-                name: 'connect_slack',
-                value: 'connect',
-                style: 'primary'
-              }
-            ]
-          }]
+          text:
+            `🔗 *Slack Apps Status*: _Not Connected_\n` +
+            `Run */connect slack* to link your workspace apps.`
         };
       }
 
       return {
         response_type: 'ephemeral',
-        text: '✅ Slack Apps Status: Connected',
-        attachments: [{
-          color: 'good',
-          title: 'Slack Apps Connection Status',
-          text: connectionStatus.message,
-          fields: [
-            {
-              title: '🏢 Team',
-              value: connectionStatus.teamName,
-              short: true
-            },
-            {
-              title: '📱 Connected Apps',
-              value: userConnections.length.toString(),
-              short: true
-            },
-            {
-              title: '🔗 Connected Since',
-              value: new Date(connectionStatus.connectedAt).toLocaleString(),
-              short: false
-            },
-            {
-              title: '🔐 Available Scopes',
-              value: connectionStatus.scopes.join(', '),
-              short: false
-            }
-          ],
-          actions: [
-            {
-              type: 'button',
-              text: 'Manage Apps',
-              name: 'manage_slack_apps',
-              value: 'manage',
-              style: 'primary'
-            },
-            {
-              type: 'button',
-              text: 'Disconnect',
-              name: 'disconnect_slack',
-              value: 'disconnect',
-              style: 'danger'
-            }
-          ]
-        }]
+        text:
+          `✅ *Slack Apps Status*: Connected\n\n` +
+          `• Team : *${status.teamName || 'Unknown'}*\n` +
+          `• Connected apps : ${userConnections.length}\n` +
+          `• Since : ${new Date(status.connectedAt).toLocaleString()}\n` +
+          `• Scopes : ${status.scopes?.join(', ') || 'None'}\n\n` +
+          `👉  */slack apps*  to manage or */disconnect slack* to unlink`
       };
 
-    } catch (error) {
-      console.error('❌ Error getting Slack status:', error.message);
+    } catch (err) {
+      console.error('❌ Slack status error:', err);
       return {
         response_type: 'ephemeral',
-        text: `❌ Error getting Slack status: ${error.message}`
+        text: `❌ Error getting Slack status: ${err.message}`
       };
     }
   }
 
-  // Handle disconnect command
+  /* ─────────────────────────── DISCONNECT ─────────────────────────── */
   async handleDisconnectCommand(slackUserId) {
     try {
-      console.log('🔌 Disconnecting Slack apps for user:', slackUserId);
+      console.log('🔌 Disconnecting Slack apps for', slackUserId);
 
       const wasConnected = slackService.disconnectUser(slackUserId);
-      
+
       if (wasConnected) {
-        // Update user context
+        // Update cached user context
         userContextService.storeUserContext(slackUserId, {
           slackConnected: false,
           connectionStatus: 'disconnected'
@@ -251,97 +108,59 @@ class SlackHandler {
 
         return {
           response_type: 'ephemeral',
-          text: '✅ Successfully disconnected from Slack apps',
-          attachments: [{
-            color: 'good',
-            title: 'Slack Apps Disconnected',
-            text: 'Your Slack app connections have been removed.',
-            actions: [
-              {
-                type: 'button',
-                text: 'Reconnect',
-                name: 'connect_slack',
-                value: 'connect',
-                style: 'primary'
-              }
-            ]
-          }]
-        };
-      } else {
-        return {
-          response_type: 'ephemeral',
-          text: '⚠️ You were not connected to Slack apps',
-          attachments: [{
-            color: 'warning',
-            title: 'No Connection Found',
-            text: 'No active Slack app connection was found.',
-            actions: [
-              {
-                type: 'button',
-                text: 'Connect Now',
-                name: 'connect_slack',
-                value: 'connect',
-                style: 'primary'
-              }
-            ]
-          }]
+          text:
+            `✅ Successfully disconnected all Slack apps.\n` +
+            `You can reconnect any time with */connect slack*`
         };
       }
 
-    } catch (error) {
-      console.error('❌ Error disconnecting Slack apps:', error.message);
       return {
         response_type: 'ephemeral',
-        text: `❌ Error disconnecting Slack apps: ${error.message}`
+        text:
+          `⚠️ No active Slack app connection found.\n` +
+          `Run */connect slack* to link your workspace apps.`
+      };
+
+    } catch (err) {
+      console.error('❌ Slack disconnect error:', err);
+      return {
+        response_type: 'ephemeral',
+        text: `❌ Error disconnecting Slack apps: ${err.message}`
       };
     }
   }
 
-  // Handle app management command
+  /* ─────────────────────────── MANAGE APPS ────────────────────────── */
   async handleManageAppsCommand(slackUserId) {
     try {
-      console.log('🛠️ Managing Slack apps for user:', slackUserId);
+      console.log('🛠  Managing Slack apps for', slackUserId);
 
-      const popularApps = slackService.getPopularSlackApps();
+      const popularApps     = slackService.getPopularSlackApps();
       const userConnections = slackService.getUserConnections(slackUserId);
 
+      const available = popularApps
+        .map(a => `• ${a.icon} *${a.name}*: <${slackService.createAppAuthURL(slackUserId, a.app_id)}|Connect>`)
+        .join('\n');
+
+      const connected = userConnections.length
+        ? userConnections.map(c =>
+            `• ${c.app_id || 'Unknown App'} (connected ${new Date(c.connected_at).toLocaleDateString()})`
+          ).join('\n')
+        : '_None yet_';
+
       return {
         response_type: 'ephemeral',
-        text: '🛠️ Manage Your Slack App Connections',
-        attachments: [{
-          color: '#4A154B',
-          title: 'Available Slack Apps',
-          text: 'Connect to additional Slack apps for enhanced functionality:',
-          fields: popularApps.map(app => ({
-            title: `${app.icon} ${app.name}`,
-            value: app.description,
-            short: true
-          })),
-          actions: popularApps.slice(0, 3).map(app => ({
-            type: 'button',
-            text: `${app.icon} ${app.name}`,
-            url: slackService.createAppAuthURL(slackUserId, app.app_id),
-            style: 'default'
-          }))
-        }, {
-          color: 'good',
-          title: 'Connected Apps',
-          text: userConnections.length > 0 
-            ? `You have ${userConnections.length} connected app(s)`
-            : 'No apps connected yet',
-          fields: userConnections.map(conn => ({
-            title: conn.app_id || 'Unknown App',
-            value: `Connected: ${new Date(conn.connected_at).toLocaleDateString()}`,
-            short: true
-          }))
-        }]
+        text:
+          `🛠 *Manage Slack App Connections*\n\n` +
+          `*Available apps to connect*\n${available}\n\n` +
+          `*Currently connected apps*\n${connected}`
       };
 
-    } catch (error) {
-      console.error('❌ Error managing Slack apps:', error.message);
+    } catch (err) {
+      console.error('❌ Slack manage-apps error:', err);
       return {
         response_type: 'ephemeral',
-        text: `❌ Error managing Slack apps: ${error.message}`
+        text: `❌ Error managing Slack apps: ${err.message}`
       };
     }
   }

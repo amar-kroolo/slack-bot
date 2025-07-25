@@ -1,8 +1,37 @@
 // Response Formatter - Converts JSON API responses to Slack Block Kit format
 
 class ResponseFormatter {
+
+  formatConversationalResponse(data) {
+  return [
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `🤖 ${data.message}`
+      }
+    },
+    {
+      type: "context",
+      elements: [
+        {
+          type: "mrkdwn",
+          text: `💡 Powered by AI Assistant • Confidence: ${Math.round((data.confidence || 1) * 100)}%`
+        }
+      ]
+    }
+  ];
+}
+
+
+
+
   formatResponse(data, apiUsed) {
     try {
+
+         if (data && data.type === 'conversational') {
+      return this.formatConversationalResponse(data);
+    }
       // Handle Enterprise Search API responses
       if (data && typeof data === 'object') {
         // Handle different Enterprise Search API response structures
@@ -463,23 +492,37 @@ class ResponseFormatter {
   }
 
   formatSimpleResponse(data, apiUsed) {
+  // Handle conversational messages that don't have complex data structure
+  if (data && typeof data === 'object' && data.message) {
     return [
-      {
-        type: "header",
-        text: {
-          type: "plain_text",
-          text: `✅ ${this.getApiDisplayName(apiUsed)} Response`
-        }
-      },
       {
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `\`\`\`${JSON.stringify(data, null, 2)}\`\`\``
+          text: `🤖 ${data.message}`
         }
       }
     ];
   }
+
+  return [
+    {
+      type: "header",
+      text: {
+        type: "plain_text",
+        text: `✅ ${this.getApiDisplayName(apiUsed)} Response`
+      }
+    },
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `\`\`\`${JSON.stringify(data, null, 2)}\`\`\``
+      }
+    }
+  ];
+}
+
 
   formatErrorResponse(error) {
     return [
@@ -493,17 +536,24 @@ class ResponseFormatter {
     ];
   }
 
-  getApiDisplayName(apiUsed) {
-    const displayNames = {
-      search: 'Search Results',
-      'recent-searches': 'Recent Searches',
-      'suggested-documents': 'Suggested Documents',
-      'trending-documents': 'Trending Documents',
-      'dynamic-suggestions': 'Search Suggestions'
-    };
-
-    return displayNames[apiUsed] || apiUsed.charAt(0).toUpperCase() + apiUsed.slice(1);
+ getApiDisplayName(apiUsed) {
+  // ADD NULL/UNDEFINED CHECK
+  if (!apiUsed || apiUsed === '_none' || apiUsed === 'conversational') {
+    return 'AI Assistant';
   }
+
+  const displayNames = {
+    search: 'Search Results',
+    'recent-searches': 'Recent Searches',
+    'suggested-documents': 'Suggested Documents',
+    'trending-documents': 'Trending Documents',
+    'dynamic-suggestions': 'Search Suggestions'
+  };
+
+  return displayNames[apiUsed] || apiUsed.charAt(0).toUpperCase() + apiUsed.slice(1);
+}
+
+   
 
   getIntegrationIcon(integrationType) {
     const icons = {
