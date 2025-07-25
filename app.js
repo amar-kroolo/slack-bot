@@ -6,14 +6,32 @@ const { formatResponse } = require('./src/utils/formatter');
 // Load environment variables
 dotenv.config();
 
-// Initialize Slack app
-const app = new App({
+// Determine deployment mode
+const isProduction = process.env.NODE_ENV === 'production';
+const useSocketMode = process.env.USE_SOCKET_MODE !== 'false' && (process.env.USE_SOCKET_MODE === 'true' || !isProduction);
+
+console.log('🔧 Bot Configuration:');
+console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`);
+console.log(`   Socket Mode: ${useSocketMode ? 'Enabled' : 'Disabled'}`);
+console.log(`   Port: ${process.env.PORT || 3000}`);
+
+// Initialize Slack app with deployment-aware configuration
+const appConfig = {
   token: process.env.SLACK_BOT_TOKEN,
   signingSecret: process.env.SLACK_SIGNING_SECRET,
-  socketMode: true,
-  appToken: process.env.SLACK_APP_TOKEN,
   port: process.env.PORT || 3000
-});
+};
+
+// Add Socket Mode configuration only if enabled
+if (useSocketMode) {
+  appConfig.socketMode = true;
+  appConfig.appToken = process.env.SLACK_APP_TOKEN;
+  console.log('📡 Socket Mode enabled for local development');
+} else {
+  console.log('🌐 HTTP Mode enabled for production deployment');
+}
+
+const app = new App(appConfig);
 
 // Handle app mentions
 app.event('app_mention', async ({ event, client, logger }) => {
@@ -370,14 +388,142 @@ await client.chat.postMessage({
   }
 });
 
-// Start the app
+// Add error handlers
+app.error(async (error) => {
+  console.error('❌ Slack App Error:', error);
+
+  // Handle specific Socket Mode errors gracefully (only in Socket Mode)
+  if (useSocketMode && error.message && (
+    error.message.includes('socket') ||
+    error.message.includes('WebSocket') ||
+    error.message.includes('connection') ||
+    error.message.includes('Unhandled event')
+  )) {
+    console.log('🔄 Socket Mode connection issue detected');
+    console.log('   This is usually temporary and the connection will be re-established automatically');
+    // Don't crash the app, let it handle reconnection automatically
+    return;
+  }
+
+  // For other errors, log them but don't crash
+  console.error('   Error details:', error.stack || error.message);
+});
+
+// Handle process signals for graceful shutdown
+process.on('SIGINT', async () => {
+  console.log('\n🛑 Received SIGINT, shutting down gracefully...');
+  try {
+    await app.stop();
+    console.log('✅ App stopped successfully');
+    process.exit(0);
+  } catch (error) {
+    console.error('❌ Error during shutdown:', error);
+    process.exit(1);
+  }
+});
+
+process.on('SIGTERM', async () => {
+  console.log('\n🛑 Received SIGTERM, shutting down gracefully...');
+  try {
+    await app.stop();
+    console.log('✅ App stopped successfully');
+    process.exit(0);
+  } catch (error) {
+    console.error('❌ Error during shutdown:', error);
+    process.exit(1);
+  }
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  // Handle specific Socket Mode state machine errors (only in Socket Mode)
+  if (useSocketMode && error.message && error.message.includes('Unhandled event') && error.message.includes('server explicit disconnect')) {
+    console.warn('⚠️ Socket Mode state machine error (this is usually harmless):');
+    console.warn('   ', error.message);
+    console.log('🔄 Connection will be re-established automatically');
+    return; // Don't crash the app
+  }
+
+  console.error('❌ Uncaught Exception:', error);
+  console.error('   Stack:', error.stack);
+
+  // For critical errors, exit gracefully
+  if (error.message && (error.message.includes('EADDRINUSE') || error.message.includes('permission'))) {
+    console.error('💥 Critical error detected, exiting...');
+    process.exit(1);
+  }
+
+  // For other errors, log but don't exit in development, exit in production
+  if (isProduction) {
+    console.error('💥 Production error, exiting for safety...');
+    process.exit(1);
+  } else {
+    console.log('🔄 Development mode, attempting to continue...');
+  }
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+
+  // Handle Socket Mode related rejections
+  if (reason && reason.message && reason.message.includes('socket')) {
+    console.log('🔄 Socket-related rejection, this is usually temporary');
+    return;
+  }
+
+  // Don't exit immediately, let the app try to recover
+});
+
+// Start the app with enhanced error handling
 (async () => {
   try {
+    console.log('🚀 Starting Slack API Query Bot...');
+    console.log('🔧 Environment check:');
+    console.log('   SLACK_BOT_TOKEN:', process.env.SLACK_BOT_TOKEN ? '✅ Set' : '❌ Missing');
+    console.log('   SLACK_SIGNING_SECRET:', process.env.SLACK_SIGNING_SECRET ? '✅ Set' : '❌ Missing');
+
+    if (useSocketMode) {
+      console.log('   SLACK_APP_TOKEN:', process.env.SLACK_APP_TOKEN ? '✅ Set' : '❌ Missing');
+    }
+
     await app.start();
     console.log('⚡️ Slack API Query Bot is running!');
     console.log(`🚀 Server started on port ${process.env.PORT || 3000}`);
+
+    if (useSocketMode) {
+      console.log('📡 Socket Mode connection established');
+    } else {
+      console.log('🌐 HTTP Mode - Ready to receive webhook requests');
+      console.log('📋 Webhook URL: https://your-app.onrender.com/slack/events');
+      console.log('✅ Server is listening and ready for deployment');
+    }
+
   } catch (error) {
-    console.error('Failed to start the app:', error);
+    console.error('❌ Failed to start the app:', error);
+
+    // Provide specific guidance for common issues
+    if (error.message && error.message.includes('token')) {
+      console.error('💡 Token Error - Please check:');
+      console.error('   1. SLACK_BOT_TOKEN is set correctly');
+      if (useSocketMode) {
+        console.error('   2. SLACK_APP_TOKEN is set correctly');
+        console.error('   3. Bot has proper permissions');
+      } else {
+        console.error('   2. SLACK_SIGNING_SECRET is set correctly');
+        console.error('   3. Webhook URL is configured in Slack app');
+      }
+    } else if (useSocketMode && error.message && error.message.includes('socket')) {
+      console.error('💡 Socket Mode Error - Please check:');
+      console.error('   1. Socket Mode is enabled in your Slack app');
+      console.error('   2. App-level token has connections:write scope');
+      console.error('   3. Network connectivity');
+    } else if (!useSocketMode && error.message && error.message.includes('port')) {
+      console.error('💡 Port Error - Please check:');
+      console.error('   1. PORT environment variable is set');
+      console.error('   2. Port is not already in use');
+      console.error('   3. App has permission to bind to port');
+    }
+
     process.exit(1);
   }
 })();
