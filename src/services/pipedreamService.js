@@ -131,12 +131,15 @@ class PipedreamService {
     try {
       console.log('🔗 Creating Pipedream connect token for user:', external_user_id);
       console.log('   App:', app || 'Any app (user choice)');
-
+      // Confirm using Slack user ID
+      console.log('🔗 External User ID (Slack):', external_user_id);
+      const allowed_origins = JSON.parse(process.env.PIPEDREAM_ALLOWED_ORIGINS || "[]");
       // Try SDK first, fallback to manual API if it fails
       try {
         console.log('🔄 Attempting SDK approach...');
         const { token, expires_at, connect_link_url } = await this.pd.createConnectToken({
           external_user_id,
+          allowed_origins,
         });
 
         console.log('✅ Connect token created successfully via SDK');
@@ -161,8 +164,11 @@ class PipedreamService {
       const accessToken = await this.getOAuthAccessToken();
       const connectUrl = `https://api.pipedream.com/v1/connect/${this.projectId}/tokens`;
 
+      // Add on_success and on_error webhooks to the payload
       const requestData = {
-        external_user_id: external_user_id
+        external_user_id: external_user_id,
+        on_success: `${process.env.SLACK_BOT_URL || 'http://localhost:3000'}/api/pipedream/webhook?status=success`,
+        on_error: `${process.env.SLACK_BOT_URL || 'http://localhost:3000'}/api/pipedream/webhook?status=error`
       };
 
       console.log('📋 Connect token request details:');
@@ -207,6 +213,47 @@ class PipedreamService {
         message: error.message
       });
       throw new Error(`Failed to create connect token: ${error.response?.data?.message || error.message}`);
+    }
+  }
+  // Express-compatible webhook handler for Pipedream events
+  async handleWebhookEvent(req, res) {
+    try {
+      const { body } = req;
+      console.log('📥 Webhook Event Received:', body);
+
+      const { account, app, user_id, event } = body;
+
+      // Detailed connection logging
+      console.log('🧩 Extracted Webhook Connection Details:');
+      console.log('   🔗 Account ID:', account?.id);
+      console.log('   📱 App Name:', app?.name);
+      console.log('   👤 Slack User ID:', user_id);
+      console.log('   🕒 Timestamp:', new Date().toISOString());
+
+      if (!account?.id || !app?.name || !user_id) {
+        console.error('❌ Missing required fields in webhook payload');
+        return res.status(400).send('Bad Request');
+      }
+
+      const connectionData = {
+        account_id: account.id,
+        app: app.name,
+        source: 'pipedream_webhook',
+        real_app_id: true
+      };
+
+      if (event === 'CONNECTION_SUCCESS') {
+        await this.storeRealConnection(user_id, app.name, account.id, null);
+        console.log('🔒 Connection locked and stored successfully');
+        console.log(`✅ Webhook success: Stored connection for ${user_id}`);
+      } else if (event === 'CONNECTION_ERROR') {
+        console.warn(`⚠️ Webhook error: Failed connection for ${user_id}, app: ${app.name}`);
+      }
+
+      res.status(200).send('OK');
+    } catch (error) {
+      console.error('❌ Error processing webhook event:', error.message);
+      res.status(500).send('Internal Server Error');
     }
   }
 
@@ -416,13 +463,18 @@ class PipedreamService {
         const realConnections = this.realConnections.get(external_user_id);
         if (realConnections.length > 0) {
           console.log('✅ PRIORITY 1 SUCCESS: Found locally stored real connections:', realConnections.length);
-          console.log('   Real Account IDs:', realConnections.map(c => c.account_id));
+          console.log('   Real App IDs (from ap_id):', realConnections.map(c => c.account_id));
+          console.log('   Connected Apps:', realConnections.map(c => c.app));
+          console.log('   Sources:', realConnections.map(c => c.source || 'unknown'));
+
           return realConnections.map(conn => ({
-            account_id: conn.account_id,
+            account_id: conn.account_id, // Real app ID like apn_EOhw3ya
             name: conn.app,
             app: conn.app,
             connected: conn.status === 'active',
-            id: conn.account_id // Add id field for compatibility
+            id: conn.account_id, // Add id field for compatibility
+            source: conn.source || 'stored_connection',
+            real_app_id: conn.real_app_id || false
           }));
         }
       }
@@ -570,20 +622,26 @@ class PipedreamService {
         }
       }
 
-      // Extract real account IDs for dynamic API calls
+      // Extract real account IDs for dynamic API calls (prioritize real app IDs from popup auth)
       const realAccountIds = connectedAccounts.map(acc => acc.account_id || acc.id);
       const connectedAppNames = connectedAccounts.map(acc => acc.name || acc.app);
 
       console.log('🔗 DYNAMIC ACCOUNT DETECTION RESULTS:');
       console.log(`   📊 Total Connected Accounts: ${connectedAccounts.length}`);
-      console.log(`   🆔 Real Account IDs: [${realAccountIds.join(', ')}]`);
+      console.log(`   🆔 Real App IDs (extracted): [${realAccountIds.join(', ')}]`);
       console.log(`   📱 Connected Apps: [${connectedAppNames.join(', ')}]`);
       console.log(`   📧 Primary Email: ${primaryEmail || 'Not extracted'}`);
 
+      // Check if any of these are real app IDs from popup auth
+      const realAppIds = connectedAccounts.filter(acc => acc.real_app_id).map(acc => acc.account_id);
+      if (realAppIds.length > 0) {
+        console.log(`   🎯 Real App IDs from popup auth: [${realAppIds.join(', ')}]`);
+      }
+
       if (realAccountIds.length > 0) {
-        console.log('✅ SUCCESS: Using REAL dynamic account IDs for API calls');
+        console.log('✅ SUCCESS: Using REAL dynamic app IDs for API calls');
       } else {
-        console.log('⚠️ WARNING: No real account IDs found, will use static fallback');
+        console.log('⚠️ WARNING: No real app IDs found, will use static fallback');
       }
 
       return {
@@ -594,9 +652,11 @@ class PipedreamService {
         local_connections: localConnections,
         total_accounts: connectedAccounts.length,
         account_names: connectedAppNames,
-        account_ids: realAccountIds, // REAL dynamic account IDs
+        account_ids: realAccountIds, // REAL dynamic app IDs (like apn_EOhw3ya)
         real_accounts: realAccountIds.length > 0, // Flag to indicate if we have real accounts
-        static_fallback: realAccountIds.length === 0 // Flag to indicate if using static fallback
+        static_fallback: realAccountIds.length === 0, // Flag to indicate if using static fallback
+        real_app_ids_count: realAccountIds.filter(id => id.startsWith('apn_')).length, // Count of real Pipedream app IDs
+        extracted_from_popup: connectedAccounts.some(acc => acc.source === 'pipedream_popup_auth') // Flag if any came from popup auth
       };
     } catch (error) {
       console.error('❌ Error getting user status:', error.message);
@@ -793,7 +853,9 @@ class PipedreamService {
           external_user_id_source: 'pipedream_oauth',
           email_source: 'pipedream_oauth',
           real_account_ids: userStatus.account_ids.length > 0,
-          total_real_accounts: userStatus.account_ids.length
+          total_real_accounts: userStatus.account_ids.length,
+          real_app_ids_from_popup: userStatus.extracted_from_popup || false,
+          real_app_ids_count: userStatus.real_app_ids_count || 0
         };
       }
 
@@ -812,7 +874,7 @@ class PipedreamService {
         return {
           external_user_id: slackUserId,
           user_email: userStatus.primary_email || slackEmail || 'default@example.com',
-          account_ids: userStatus.account_ids, // ✅ REAL account IDs from Pipedream
+          account_ids: userStatus.account_ids, // ✅ REAL app IDs from Pipedream (like apn_EOhw3ya)
           dynamic: true,
           slack_user_id: slackUserId,
           slack_email: slackEmail,
@@ -822,7 +884,9 @@ class PipedreamService {
           external_user_id_source: 'slack',
           email_source: userStatus.primary_email ? 'pipedream_connected_account' : 'slack_profile',
           real_account_ids: true,
-          total_real_accounts: userStatus.account_ids.length
+          total_real_accounts: userStatus.account_ids.length,
+          real_app_ids_from_popup: userStatus.extracted_from_popup || false,
+          real_app_ids_count: userStatus.real_app_ids_count || 0
         };
       }
 
@@ -1232,10 +1296,10 @@ class PipedreamService {
     return newConnection;
   }
 
-  // Get user's REAL connected account IDs
+  // Get user's REAL connected account IDs (extracted app IDs like apn_EOhw3ya)
   getRealAccountIds(external_user_id) {
-    console.log('🔍 Getting REAL account IDs for user:', external_user_id);
-    
+    console.log('🔍 Getting REAL app IDs for user:', external_user_id);
+
     if (!this.realConnections) {
       console.log('⚠️ No real connections storage found');
       return [];
@@ -1244,11 +1308,33 @@ class PipedreamService {
     const userConnections = this.realConnections.get(external_user_id) || [];
     const activeConnections = userConnections.filter(conn => conn.status === 'active');
     const accountIds = activeConnections.map(conn => conn.account_id);
-    
-    console.log('✅ Found REAL account IDs:', accountIds);
+
+    console.log('✅ Found REAL app IDs:', accountIds);
     console.log('📊 Active connections:', activeConnections.length);
-    
+    console.log('🎯 App IDs from popup auth:', accountIds.filter(id => id.startsWith('apn_')));
+
     return accountIds;
+  }
+
+  // Get specifically the real app IDs extracted from popup authentication
+  getRealAppIdsFromPopup(external_user_id) {
+    console.log('🎯 Getting REAL app IDs from popup auth for user:', external_user_id);
+
+    if (!this.realConnections) {
+      return [];
+    }
+
+    const userConnections = this.realConnections.get(external_user_id) || [];
+    const popupConnections = userConnections.filter(conn =>
+      conn.status === 'active' &&
+      conn.source === 'pipedream_popup_auth' &&
+      conn.real_app_id === true
+    );
+
+    const appIds = popupConnections.map(conn => conn.account_id);
+
+    console.log('✅ Found popup-extracted app IDs:', appIds);
+    return appIds;
   }
 
   // Get user's REAL connected apps
@@ -1273,8 +1359,13 @@ class PipedreamService {
     try {
       console.log('💾 Storing real connection for user:', userId);
       console.log('   App:', appSlug);
-      console.log('   Account ID:', accountId);
+      console.log('   Real App ID (from ap_id):', accountId);
       console.log('   Email:', userEmail);
+
+      // Initialize realConnections if not exists
+      if (!this.realConnections) {
+        this.realConnections = new Map();
+      }
 
       // Get existing connections or create new array
       const existingConnections = this.realConnections.get(userId) || [];
@@ -1282,14 +1373,16 @@ class PipedreamService {
       // Remove any existing connection for this app
       const filteredConnections = existingConnections.filter(conn => conn.app !== appSlug);
 
-      // Add the new real connection
+      // Add the new real connection with the extracted app ID
       const newConnection = {
         app: appSlug,
-        account_id: accountId,
+        account_id: accountId, // This is the real app ID like apn_EOhw3ya
         user_email: userEmail,
         status: 'active',
         connected_at: new Date().toISOString(),
-        last_updated: new Date().toISOString()
+        last_updated: new Date().toISOString(),
+        source: 'pipedream_popup_auth', // Track where this came from
+        real_app_id: true // Flag to indicate this is a real extracted app ID
       };
 
       filteredConnections.push(newConnection);
@@ -1299,12 +1392,15 @@ class PipedreamService {
 
       console.log('✅ Real connection stored successfully');
       console.log('   Total connections for user:', filteredConnections.length);
+      console.log('   Real App ID stored:', accountId);
+      console.log('   All user app IDs:', filteredConnections.map(c => c.account_id));
 
       return {
         success: true,
         account_id: accountId,
         app: appSlug,
-        total_connections: filteredConnections.length
+        total_connections: filteredConnections.length,
+        real_app_id: accountId
       };
     } catch (error) {
       console.error('❌ Error storing real connection:', error.message);
@@ -1340,4 +1436,6 @@ class PipedreamService {
   }
 }
 
-module.exports = new PipedreamService();
+const pipedreamServiceInstance = new PipedreamService();
+module.exports = pipedreamServiceInstance;
+module.exports.handlePipedreamWebhook = (req, res) => pipedreamServiceInstance.handleWebhookEvent(req, res);
