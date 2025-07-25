@@ -172,13 +172,41 @@ app.event('app_mention', async ({ event, client, logger }) => {
     }
 
     // Handle regular Enterprise Search API responses
-    const formattedResponse = formatResponse(result.data, result.apiUsed);
+  // Handle conversational responses FIRST
+if (result.type === 'conversational' || result.message) {
+  await client.chat.postMessage({
+    channel: event.channel,
+    text: result.message
+  });
+  return;
+}
 
-    await client.chat.postMessage({
-      channel: event.channel,
-      text: `Search results for your query`, // Fallback text for accessibility
-      blocks: formattedResponse
-    });
+// Handle SlackHandler responses (blocks format)
+if (result.blocks) {
+  await client.chat.postMessage({
+    channel: event.channel,
+    blocks: result.blocks
+  });
+  return;
+}
+
+// Handle regular Enterprise Search API responses
+if (result.data) {
+  const formattedResponse = formatResponse(result.data, result.apiUsed);
+  await client.chat.postMessage({
+    channel: event.channel,
+    text: `Search results for your query`,
+    blocks: formattedResponse
+  });
+  return;
+}
+
+// Fallback for unexpected response structure
+await client.chat.postMessage({
+  channel: event.channel,
+  text: "I processed your request, but couldn't format the response properly."
+});
+
 
   } catch (error) {
     logger.error('Error handling app mention:', error);
@@ -315,13 +343,41 @@ app.message(async ({ message, client, logger }) => {
     }
 
     // Format and send the response
-    const formattedResponse = formatResponse(result.data, result.apiUsed);
+  // Handle conversational responses FIRST
+if (result.type === 'conversational' || result.message) {
+  await client.chat.postMessage({
+    channel: message.channel,
+    text: result.message
+  });
+  return;
+}
 
-    await client.chat.postMessage({
-      channel: message.channel,
-      text: `Search results for your query`, // Fallback text for accessibility
-      blocks: formattedResponse
-    });
+// Handle SlackHandler responses (blocks format)
+if (result.blocks) {
+  await client.chat.postMessage({
+    channel: message.channel,
+    blocks: result.blocks
+  });
+  return;
+}
+
+// Handle regular Enterprise Search API responses
+if (result.data) {
+  const formattedResponse = formatResponse(result.data, result.apiUsed);
+  await client.chat.postMessage({
+    channel: message.channel,
+    text: `Search results for your query`,
+    blocks: formattedResponse
+  });
+  return;
+}
+
+// Fallback for unexpected response structure
+await client.chat.postMessage({
+  channel: message.channel,
+  text: "I processed your request, but couldn't format the response properly."
+});
+
 
   } catch (error) {
     logger.error('Error handling direct message:', error);

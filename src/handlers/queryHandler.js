@@ -69,13 +69,30 @@ class QueryHandler {
       console.log('🎯 Selected API:', parsedQuery.api);
       console.log('📋 Extracted Parameters:', JSON.stringify(parsedQuery.parameters, null, 2));
       console.log('📈 Confidence Score:', parsedQuery.confidence);
-      console.log('🔧 Method Used:', parsedQuery.method);
-      console.log('🤖 AI Provider:', parsedQuery.aiProvider || 'None');
+      console.log('🔧 Method Used:', parsedQuery.method || parsedQuery.intent);
+      console.log('🤖 AI Provider:', parsedQuery.aiProvider || 'Gemini');
       if (parsedQuery.reasoning) {
         console.log('💭 AI Reasoning:', parsedQuery.reasoning);
       }
 
-      // Step 2: Validate the API endpoint exists
+      // STEP 1.5: Check if this is a conversational message response (NEW)
+      if (parsedQuery.api === '_none' || parsedQuery.type === 'message') {
+        console.log('💬 CONVERSATIONAL RESPONSE: Skipping API validation');
+        console.log('📝 Message:', parsedQuery.message);
+        
+        return {
+          message: parsedQuery.message,
+          type: 'conversational',
+          confidence: parsedQuery.confidence,
+          intent: parsedQuery.intent,
+          aiProvider: 'Gemini NLP',
+          method: 'conversational_ai',
+          apiUsed: 'conversational', 
+          parameters: {}        
+        };
+      }
+
+      // Step 2: Validate the API endpoint exists (only for actual API calls)
       console.log('\n🔍 STEP 2: Validating API endpoint...');
       const apiConfig = API_ENDPOINTS[parsedQuery.api];
       if (!apiConfig) {
@@ -152,6 +169,7 @@ class QueryHandler {
     }
   }
 
+  // Rest of your methods remain unchanged...
   async parseQuery(query) {
     console.log('🔍 PARSING PHASE: Starting query analysis...');
     console.log('📝 Query to parse:', `"${query}"`);
@@ -202,6 +220,7 @@ class QueryHandler {
     return nlpResult;
   }
 
+  // ... rest of your existing methods remain the same
   // Create helpful response for general queries
   createHelpfulGeneralResponse(query, userContext = null) {
     console.log('🎯 Creating helpful response for general query:', query);
@@ -413,6 +432,7 @@ class QueryHandler {
       };
     }
   }
+
   // Parse Slack-specific commands
   parseSlackCommand(query) {
     const normalizedQuery = query.toLowerCase().trim();
