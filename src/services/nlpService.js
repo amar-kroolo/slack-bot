@@ -1,14 +1,12 @@
-// Enhanced AI-Powered Natural Language Processing Service with System Instructions and OpenAI Fallback
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+// Enhanced AI-Powered Natural Language Processing Service with OpenAI Only
 const OpenAI = require('openai');
 
 class NlpService {
   constructor() {
-    this.geminiModel = null;
     this.openaiClient = null;
     this.activeProvider = null;
     
-    this.initializeModels();
+    this.initializeOpenAI();
 
     this.conversationContext = {
       lastQuery: null,
@@ -28,36 +26,6 @@ class NlpService {
     };
   }
 
-  initializeModels() {
-    // Try to initialize Gemini first
-    this.initializeGemini();
-    
-    // If Gemini fails, initialize OpenAI as fallback
-    if (!this.geminiModel) {
-      this.initializeOpenAI();
-    }
-  }
-
-  initializeGemini() {
-    if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'your-gemini-api-key-here') {
-      try {
-        const gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        this.geminiModel = gemini.getGenerativeModel({
-          model: process.env.AI_MODEL_GEMINI || 'gemini-pro',
-          systemInstruction: this.getSystemInstruction()
-        });
-        this.activeProvider = 'gemini';
-        console.log('🧠 Gemini initialized successfully with system instructions');
-      } catch (e) {
-        console.error('❌ Gemini initialization failed:', e.message);
-        this.geminiModel = null;
-      }
-    } else {
-      console.log('⚠️ Gemini API key not set or invalid, trying OpenAI fallback...');
-      this.geminiModel = null;
-    }
-  }
-
   initializeOpenAI() {
     if (process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'your-openai-api-key-here') {
       try {
@@ -65,7 +33,7 @@ class NlpService {
           apiKey: process.env.OPENAI_API_KEY
         });
         this.activeProvider = 'openai';
-        console.log('🤖 OpenAI initialized successfully as fallback');
+        console.log('🤖 OpenAI initialized successfully with powerful model');
       } catch (e) {
         console.error('❌ OpenAI initialization failed:', e.message);
         this.openaiClient = null;
@@ -77,7 +45,7 @@ class NlpService {
   }
 
   getSystemInstruction() {
-    return `You are an AI Assitant. Your primary role is to help users find information across various enterprise platforms including Google Drive, Slack, Dropbox, JIRA, Zendesk, and Document360.
+    return `You are an AI Assistant. Your primary role is to help users find information across various enterprise platforms including Google Drive, Slack, Dropbox, JIRA, Zendesk, and Document360.
 
 CORE RESPONSIBILITIES:
 1. Analyze user queries to determine if they relate to enterprise search functionality
@@ -111,67 +79,59 @@ CONTEXT AWARENESS:
 - Provide suggestions based on conversation history`;
   }
 
+  // Get the most powerful OpenAI model available
+  getPowerfulModel() {
+    // Order by preference: most powerful first
+    const powerfulModels = [
+      'gpt-4o',           // Most powerful multimodal
+      'gpt-4-turbo',      // Latest GPT-4 variant
+      'gpt-4',            // Standard GPT-4
+      'gpt-3.5-turbo'     // Fallback
+    ];
+    
+    // Return environment variable if set, otherwise use most powerful
+    return process.env.AI_MODEL_OPENAI || powerfulModels[0];
+  }
+
+  // Clean JSON response from potential markdown wrapping
+  cleanJsonResponse(text) {
+    if (!text) return text;
+    
+    // Remove various markdown code fence patterns
+    return text
+      .replace(/```json/g, '')
+       .replace(/``````/g, '')    // Removed invalid/unterminated regex
+      .replace(/`{3,}/g, '')        // Remove multiple backticks
+      .trim();
+  }
+
   async parseQuery(query) {
-    console.log('\n🧠 ===== INTENT ENGINE NLP SERVICE PROCESSING =====');
+    console.log('\n🧠 ===== INTENT ENGINE NLP SERVICE PROCESSING (OPENAI ONLY) =====');
     console.log('📝 Input Query:', `"${query}"`);
     console.log('🤖 Active Provider:', this.activeProvider || 'None');
+    console.log('🔥 Model:', this.getPowerfulModel());
     console.log('⏰ NLP Start Time:', new Date().toISOString());
 
-    // Check if any model is available
-    if (!this.geminiModel && !this.openaiClient) {
-      console.error('❌ No AI models initialized.');
+    // Check if OpenAI is available
+    if (!this.openaiClient) {
+      console.error('❌ OpenAI client not initialized.');
       return this.buildMessageResponse('AI service unavailable. Please try again later.');
     }
 
     try {
-      let response;
-      
-      // Try Gemini first if available
-      if (this.geminiModel) {
-        try {
-          response = await this.processWithGemini(query);
-        } catch (error) {
-          console.error('❌ Gemini processing failed:', error.message);
-          console.log('🔄 Falling back to OpenAI...');
-          
-          // Initialize OpenAI if not already done
-          if (!this.openaiClient) {
-            this.initializeOpenAI();
-          }
-          
-          if (this.openaiClient) {
-            response = await this.processWithOpenAI(query);
-          } else {
-            throw new Error('Both Gemini and OpenAI failed');
-          }
-        }
-      } 
-      // Use OpenAI if Gemini is not available
-      else if (this.openaiClient) {
-        response = await this.processWithOpenAI(query);
-      }
-
+      const response = await this.processWithOpenAI(query);
       return response;
-
     } catch (error) {
-      console.error('❌ All AI providers failed:', error);
+      console.error('❌ OpenAI processing failed:', error);
       return this.buildMessageResponse('AI service error. Please try again later.');
     }
-  }
-
-  async processWithGemini(query) {
-    const contextualPrompt = this.createContextualPrompt(query);
-    const result = await this.geminiModel.generateContent(contextualPrompt);
-    let text = result.response.text().trim();
-
-    return this.parseAIResponse(text, query);
   }
 
   async processWithOpenAI(query) {
     const contextualPrompt = this.createContextualPrompt(query);
     
     const completion = await this.openaiClient.chat.completions.create({
-      model: process.env.AI_MODEL_OPENAI || 'gpt-3.5-turbo',
+      model: this.getPowerfulModel(),
       messages: [
         {
           role: 'system',
@@ -183,11 +143,19 @@ CONTEXT AWARENESS:
         }
       ],
       temperature: 0.7,
-      max_tokens: 1000
+      max_tokens: 1000,
+      top_p: 1,
+      frequency_penalty: 0,
+      presence_penalty: 0
     });
 
-    const text = completion.choices[0].message.content.trim();
-    return this.parseAIResponse(text, query);
+    const rawText = completion.choices[0].message.content.trim();
+    const cleanedText = this.cleanJsonResponse(rawText);
+    
+    console.log('🔧 Raw AI Response:', rawText.substring(0, 100) + '...');
+    console.log('✨ Cleaned Response:', cleanedText.substring(0, 100) + '...');
+    
+    return this.parseAIResponse(cleanedText, query);
   }
 
   parseAIResponse(text, query) {
@@ -214,7 +182,8 @@ CONTEXT AWARENESS:
           intent: parsed.intent,
           reasoning: parsed.reasoning || 'Intent detected successfully',
           type: 'actionable',
-          provider: this.activeProvider
+          provider: this.activeProvider,
+          model: this.getPowerfulModel()
         };
       } else {
         return this.buildMessageResponse(
@@ -242,7 +211,8 @@ CONTEXT AWARENESS:
       intent: 'GENERAL_MESSAGE',
       message: messageText,
       type: 'message',
-      provider: this.activeProvider || 'fallback'
+      provider: this.activeProvider || 'fallback',
+      model: this.getPowerfulModel()
     };
   }
 
@@ -286,22 +256,18 @@ This doesn't seem to be related to enterprise search. Generate a helpful, contex
 
 Respond with PURE JSON only (no code fences, no markdown): {"message": "your response"}`;
 
-      let text;
-      if (this.geminiModel) {
-        const result = await this.geminiModel.generateContent(contextPrompt);
-        text = result.response.text().trim();
-      } else if (this.openaiClient) {
-        const completion = await this.openaiClient.chat.completions.create({
-          model: process.env.AI_MODEL_OPENAI || 'gpt-3.5-turbo',
-          messages: [{ role: 'user', content: contextPrompt }],
-          temperature: 0.7,
-          max_tokens: 200
-        });
-        text = completion.choices[0].message.content.trim();
-      }
+      const completion = await this.openaiClient.chat.completions.create({
+        model: this.getPowerfulModel(),
+        messages: [{ role: 'user', content: contextPrompt }],
+        temperature: 0.7,
+        max_tokens: 200
+      });
+      
+      const rawText = completion.choices[0].message.content.trim();
+      const cleanedText = this.cleanJsonResponse(rawText);
       
       try {
-        const parsed = JSON.parse(text);
+        const parsed = JSON.parse(cleanedText);
         return this.buildMessageResponse(parsed.message || "Hello! I'm here to help you search and find information across your enterprise platforms.");
       } catch (err) {
         return this.buildMessageResponse(
@@ -310,7 +276,7 @@ Respond with PURE JSON only (no code fences, no markdown): {"message": "your res
       }
     } catch (error) {
       return this.buildMessageResponse(
-        "Hello! I'm your enterprise search assistant. I can help you find documents, view your search history, get recommendations, and more. What would you like to search for?"
+        "Hello! I'm your AI Assistant. I can help you find documents, view your search history, get recommendations, and more. What would you like to search for?"
       );
     }
   }
@@ -328,22 +294,18 @@ Generate a helpful clarification response that:
 
 Respond with PURE JSON only (no code fences, no markdown): {"message": "your clarification request"}`;
 
-      let text;
-      if (this.geminiModel) {
-        const result = await this.geminiModel.generateContent(clarificationPrompt);
-        text = result.response.text().trim();
-      } else if (this.openaiClient) {
-        const completion = await this.openaiClient.chat.completions.create({
-          model: process.env.AI_MODEL_OPENAI || 'gpt-3.5-turbo',
-          messages: [{ role: 'user', content: clarificationPrompt }],
-          temperature: 0.7,
-          max_tokens: 200
-        });
-        text = completion.choices[0].message.content.trim();
-      }
+      const completion = await this.openaiClient.chat.completions.create({
+        model: this.getPowerfulModel(),
+        messages: [{ role: 'user', content: clarificationPrompt }],
+        temperature: 0.7,
+        max_tokens: 200
+      });
+      
+      const rawText = completion.choices[0].message.content.trim();
+      const cleanedText = this.cleanJsonResponse(rawText);
       
       try {
-        const parsed = JSON.parse(text);
+        const parsed = JSON.parse(cleanedText);
         return this.buildMessageResponse(parsed.message || "I'm not quite sure what you're looking for. Could you please rephrase your request?");
       } catch (err) {
         return this.buildMessageResponse(
@@ -391,7 +353,8 @@ Respond with PURE JSON only (no code fences, no markdown): {"message": "your cla
       query: query.substring(0, 30), 
       api, 
       intent,
-      provider: this.activeProvider
+      provider: this.activeProvider,
+      model: this.getPowerfulModel()
     });
   }
 
@@ -403,7 +366,8 @@ Respond with PURE JSON only (no code fences, no markdown): {"message": "your cla
         .sort(([,a], [,b]) => b - a)
         .slice(0, 3),
       lastActivity: this.conversationContext.intentHistory.slice(-1)[0] || null,
-      activeProvider: this.activeProvider
+      activeProvider: this.activeProvider,
+      model: this.getPowerfulModel()
     };
   }
 
@@ -419,13 +383,13 @@ Respond with PURE JSON only (no code fences, no markdown): {"message": "your cla
     console.log('🔄 Conversation context reset');
   }
 
-  // NEW: Method to get current provider status
+  // Method to get current provider status
   getProviderStatus() {
     return {
-      geminiAvailable: !!this.geminiModel,
       openaiAvailable: !!this.openaiClient,
       activeProvider: this.activeProvider,
-      fallbackEnabled: !!(this.geminiModel && this.openaiClient)
+      model: this.getPowerfulModel(),
+      powerfulModelEnabled: true
     };
   }
 }
