@@ -14,7 +14,9 @@ class PipedreamService {
     this.clientSecret = process.env.PIPEDREAM_CLIENT_SECRET;
     this.environment = process.env.PIPEDREAM_ENV || 'development';
     this.apiBase = process.env.PIPEDREAM_API_BASE || 'https://api.pipedream.com/v1';
-
+    this.webhookUri = process.env.PIPEDREAM_WEBHOOK_URI ||
+      `${process.env.SLACK_BOT_URL || 'http://localhost:3000'}/api/pipedream/webhook`;
+    console.log('Webhook URI:', this.webhookUri);
     // Initialize Pipedream SDK client (like the TypeScript reference)
     this.pd = createBackendClient({
       environment: this.environment,
@@ -42,7 +44,7 @@ class PipedreamService {
 
     // Real connections storage (like your frontend code) - stores actual account IDs from Pipedream
     this.realConnections = new Map(); // userId -> array of real connections with actual account IDs
-    
+
     console.log('🔧 Pipedream Service initialized');
     console.log('   Client ID:', this.clientId ? `✅ Set (${this.clientId.substring(0, 10)}...)` : '❌ Missing');
     console.log('   Project ID:', this.projectId ? `✅ Set (${this.projectId.substring(0, 10)}...)` : '❌ Missing');
@@ -126,23 +128,45 @@ class PipedreamService {
     }
   }
 
-  // Create a connect token for a specific user (fallback to working manual API approach)
+  // Enhanced connect token creation with proper webhook and success URL configuration
   async createConnectToken(external_user_id, app = null) {
     try {
-      console.log('🔗 Creating Pipedream connect token for user:', external_user_id);
+      console.log('🔗 Creating enhanced connect token for user:', external_user_id);
       console.log('   App:', app || 'Any app (user choice)');
-      // Confirm using Slack user ID
-      console.log('🔗 External User ID (Slack):', external_user_id);
-      const allowed_origins = JSON.parse(process.env.PIPEDREAM_ALLOWED_ORIGINS || "[]");
-      // Try SDK first, fallback to manual API if it fails
-      try {
-        console.log('🔄 Attempting SDK approach...');
-        const { token, expires_at, connect_link_url } = await this.pd.createConnectToken({
-          external_user_id,
-          allowed_origins,
-        });
 
-        console.log('✅ Connect token created successfully via SDK');
+      // Use ngrok URL from environment
+      const baseUrl = process.env.PIPEDREAM_WEBHOOK_BASE_URL || 'https://d6edd0a8f2b3.ngrok-free.app';
+      
+      // Configure URLs with proper parameters
+      const webhookUrl = `${baseUrl}/api/pipedream/webhook`;
+      const successUrl = `${baseUrl}/pipedream/success?external_user_id=${encodeURIComponent(external_user_id)}&source=pipedream_connect`;
+      const errorUrl = `${baseUrl}/pipedream/error?external_user_id=${encodeURIComponent(external_user_id)}`;
+
+      console.log('🌐 Enhanced URL Configuration:');
+      console.log('   📡 Webhook URL:', webhookUrl);
+      console.log('   ✅ Success URL:', successUrl);
+      console.log('   ❌ Error URL:', errorUrl);
+      console.log('   👤 External User ID:', external_user_id);
+
+      const requestData = {
+        external_user_id: external_user_id,
+        webhook_uri: webhookUrl,
+        success_redirect_uri: successUrl,
+        error_redirect_uri: errorUrl,
+        // Additional webhook configuration
+        webhook_events: ['connection.created', 'connection.deleted', 'connection.updated'],
+        include_credentials: true,
+        return_account_details: true
+      };
+
+      console.log('📤 Enhanced request payload:', JSON.stringify(requestData, null, 2));
+
+      // Try SDK approach first
+      try {
+        console.log('🔄 Attempting SDK approach with enhanced configuration...');
+        const { token, expires_at, connect_link_url } = await this.pd.createConnectToken(requestData);
+
+        console.log('✅ Enhanced connect token created successfully via SDK');
         const staticConnectUrl = `https://pipedream.com/_static/connect.html?token=${token}&connectLink=true`;
         const finalUrl = app ? `${staticConnectUrl}&app=${app}` : staticConnectUrl;
 
@@ -151,49 +175,32 @@ class PipedreamService {
           expires_at,
           connect_link_url: finalUrl,
           original_connect_url: connect_link_url,
+          webhook_url: webhookUrl,
+          success_url: successUrl,
+          external_user_id: external_user_id,
           app: app,
-          static_format: true
+          enhanced_config: true
         };
       } catch (sdkError) {
-        console.log('⚠️ SDK failed, falling back to manual API approach...');
+        console.log('⚠️ SDK failed, using manual API approach...');
         console.log('   SDK Error:', sdkError.message);
       }
 
-      // Use Python approach for connect token creation
-      console.log('🔗 CONNECT TOKEN: Using Python approach...');
+      // Manual API fallback
+      console.log('🔗 Using manual API approach with enhanced configuration...');
       const accessToken = await this.getOAuthAccessToken();
       const connectUrl = `https://api.pipedream.com/v1/connect/${this.projectId}/tokens`;
-
-      // Add on_success and on_error webhooks to the payload
-      const requestData = {
-        external_user_id: external_user_id,
-        on_success: `${process.env.SLACK_BOT_URL || 'http://localhost:3000'}/api/pipedream/webhook?status=success`,
-        on_error: `${process.env.SLACK_BOT_URL || 'http://localhost:3000'}/api/pipedream/webhook?status=error`
-      };
-
-      console.log('📋 Connect token request details:');
-      console.log('   URL:', connectUrl);
-      console.log('   Method: POST');
-      console.log('   External User ID:', external_user_id);
-      console.log('   Project ID:', this.projectId);
-      console.log('   Environment:', this.environment);
 
       const response = await axios.post(connectUrl, requestData, {
         headers: {
           'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-          'X-PD-Environment': this.environment
+          'Content-Type': 'application/json'
         }
       });
 
       const { token, expires_at, connect_link_url } = response.data;
 
-      console.log('✅ Connect token created successfully via manual API');
-      console.log('   Token:', token ? `✅ ${token.substring(0, 20)}...` : '❌ Missing');
-      console.log('   Expires:', new Date(expires_at).toLocaleString());
-      console.log('   ⏰ Token valid for:', Math.round((new Date(expires_at) - new Date()) / 1000 / 60), 'minutes');
-
-      // Generate the static connect URL format you specified
+      console.log('✅ Enhanced connect token created successfully via manual API');
       const staticConnectUrl = `https://pipedream.com/_static/connect.html?token=${token}&connectLink=true`;
       const finalUrl = app ? `${staticConnectUrl}&app=${app}` : staticConnectUrl;
 
@@ -202,52 +209,60 @@ class PipedreamService {
         expires_at,
         connect_link_url: finalUrl,
         original_connect_url: connect_link_url,
+        webhook_url: webhookUrl,
+        success_url: successUrl,
+        external_user_id: external_user_id,
         app: app,
-        static_format: true
+        enhanced_config: true
       };
+
     } catch (error) {
-      console.error('❌ Error creating connect token:', {
-        status: error.response?.status,
-        statusText: error.response?.statusText,
-        data: error.response?.data,
-        message: error.message
-      });
-      throw new Error(`Failed to create connect token: ${error.response?.data?.message || error.message}`);
+      console.error('❌ Error creating enhanced connect token:', error.message);
+      throw error;
     }
   }
   // Express-compatible webhook handler for Pipedream events
   async handleWebhookEvent(req, res) {
     try {
       const { body } = req;
-      console.log('📥 Webhook Event Received:', body);
+      console.log('📥 ENHANCED Webhook Event Received:', body);
 
-      const { account, app, user_id, event } = body;
+      const { account, app, user_id, event, external_user_id } = body;
 
       // Detailed connection logging
       console.log('🧩 Extracted Webhook Connection Details:');
       console.log('   🔗 Account ID:', account?.id);
       console.log('   📱 App Name:', app?.name);
-      console.log('   👤 Slack User ID:', user_id);
+      console.log('   👤 User ID:', user_id || external_user_id);
+      console.log('   🎯 Event:', event);
       console.log('   🕒 Timestamp:', new Date().toISOString());
 
-      if (!account?.id || !app?.name || !user_id) {
+      const userId = user_id || external_user_id;
+
+      if (!account?.id || !app?.name || !userId) {
         console.error('❌ Missing required fields in webhook payload');
         return res.status(400).send('Bad Request');
       }
 
-      const connectionData = {
-        account_id: account.id,
-        app: app.name,
-        source: 'pipedream_webhook',
-        real_app_id: true
-      };
-
       if (event === 'CONNECTION_SUCCESS') {
-        await this.storeRealConnection(user_id, app.name, account.id, null);
+        console.log('🎉 CONNECTION SUCCESS - Storing real account ID!');
+        
+        const appSlug = app?.name_slug || app?.slug || app?.name;
+        const realAccountId = account.id; // This is the REAL account ID
+        
+        // Store the real connection immediately
+        const storeResult = await this.storeRealConnection(userId, appSlug, realAccountId, null);
+        
+        if (storeResult.success) {
+          console.log('✅ Real account ID stored successfully!');
+          console.log('   📊 Total connections for user:', storeResult.total_connections);
+          console.log('   🔗 Stored Account ID:', realAccountId);
+        }
+
         console.log('🔒 Connection locked and stored successfully');
-        console.log(`✅ Webhook success: Stored connection for ${user_id}`);
+        console.log(`✅ Webhook success: Stored connection for ${userId}`);
       } else if (event === 'CONNECTION_ERROR') {
-        console.warn(`⚠️ Webhook error: Failed connection for ${user_id}, app: ${app.name}`);
+        console.warn(`⚠️ Webhook error: Failed connection for ${userId}, app: ${app.name}`);
       }
 
       res.status(200).send('OK');
@@ -358,33 +373,7 @@ class PipedreamService {
     return this.userConnections.get(external_user_id) || [];
   }
 
-  // Get account token for API calls
-  async getAccountToken(account_id) {
-    try {
-      console.log('🔑 Getting account token for:', account_id);
 
-      const accessToken = await this.getOAuthAccessToken();
-      const tokenUrl = `https://api.pipedream.com/v1/accounts/${account_id}/token`;
-
-      const response = await axios.get(tokenUrl, {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      console.log('✅ Account token retrieved successfully');
-      return response.data;
-    } catch (error) {
-      console.error('❌ Error getting account token:', {
-        status: error.response?.status,
-        statusText: error.response?.statusText,
-        data: error.response?.data,
-        message: error.message
-      });
-      throw error;
-    }
-  }
 
   // Get user's actual connected accounts from Pipedream
   async getUserConnectedAccounts(external_user_id) {
@@ -695,7 +684,7 @@ class PipedreamService {
     const timestamp = Date.now();
     const random = Math.random().toString(36).substring(7);
     const state = `${slackUserId}_${timestamp}_${random}`;
-    
+
     // Store state for validation
     this.userSessions.set(state, {
       slackUserId,
@@ -728,7 +717,7 @@ class PipedreamService {
       });
 
       const { access_token, refresh_token, expires_in } = tokenResponse.data;
-      
+
       // Get user information from Pipedream
       const userResponse = await axios.get('https://api.pipedream.com/v1/users/me', {
         headers: {
@@ -737,7 +726,7 @@ class PipedreamService {
       });
 
       const userData = userResponse.data;
-      
+
       // Store user authentication data
       const userAuth = {
         slackUserId: session.slackUserId,
@@ -770,7 +759,7 @@ class PipedreamService {
   // Get user's authentication status
   getUserAuth(slackUserId) {
     const userAuth = this.userSessions.get(slackUserId);
-    
+
     if (!userAuth) {
       return { authenticated: false, reason: 'not_connected' };
     }
@@ -829,13 +818,39 @@ class PipedreamService {
       console.log('👤 User:', slackUserId);
       console.log('📧 Slack Email:', slackEmail || 'None');
 
-      // PRIORITY 1: Try Pipedream OAuth authentication first
-      console.log('🎯 STEP 1: Checking Pipedream OAuth authentication...');
+      const external_user_id = slackEmail || slackUserId;
+
+      // PRIORITY 1: Check for REAL connected account IDs from success callbacks
+      console.log('🎯 STEP 1: Checking for REAL account IDs from success callbacks...');
+      const realAccountIds = this.getRealAccountIds(external_user_id);
+      const realApps = this.getRealConnectedApps(external_user_id);
+
+      if (realAccountIds.length > 0) {
+        console.log('✅ STEP 1 SUCCESS: Found REAL connections from success callbacks!');
+        console.log('🔗 REAL ACCOUNT IDS:', realAccountIds);
+        console.log('📱 REAL APPS:', realApps);
+        console.log('📊 Real connections count:', realAccountIds.length);
+
+        return {
+          external_user_id: external_user_id,
+          user_email: slackEmail || 'default@example.com',
+          account_ids: realAccountIds, // ✅ REAL account IDs from connections
+          apps: realApps, // ✅ REAL connected apps
+          dynamic: true,
+          real_connections_count: realAccountIds.length,
+          auth_source: 'pipedream_real_connections',
+          connection_quality: 'real_account_ids'
+        };
+      }
+
+      console.log('⚠️ STEP 1 FAILED: No real connections found from success callbacks');
+
+      // PRIORITY 2: Try Pipedream OAuth authentication
+      console.log('🎯 STEP 2: Checking Pipedream OAuth authentication...');
       const authStatus = this.getUserAuth(slackUserId);
       if (authStatus.authenticated) {
-        console.log('✅ STEP 1 SUCCESS: Using OAuth-based Pipedream credentials');
+        console.log('✅ STEP 2 SUCCESS: Using OAuth-based Pipedream credentials');
 
-        // Get real account IDs for OAuth user
         const userStatus = await this.getUserStatus(authStatus.userAuth.pipedreamUserId);
 
         return {
@@ -846,89 +861,58 @@ class PipedreamService {
             "apn_7rhaEpm", "apn_x7hrxmn", "apn_arhpXvr"
           ],
           dynamic: true,
-          slack_user_id: slackUserId,
-          slack_email: slackEmail,
-          pipedream_user_id: authStatus.userAuth.pipedreamUserId,
           auth_source: 'pipedream_oauth',
-          external_user_id_source: 'pipedream_oauth',
-          email_source: 'pipedream_oauth',
-          real_account_ids: userStatus.account_ids.length > 0,
-          total_real_accounts: userStatus.account_ids.length,
-          real_app_ids_from_popup: userStatus.extracted_from_popup || false,
-          real_app_ids_count: userStatus.real_app_ids_count || 0
+          connection_quality: userStatus.account_ids.length > 0 ? 'real_account_ids' : 'static_fallback'
         };
       }
 
-      console.log('⚠️ STEP 1 FAILED: No Pipedream OAuth authentication');
-      console.log('🎯 STEP 2: Checking for REAL Pipedream connected accounts...');
+      console.log('⚠️ STEP 2 FAILED: No Pipedream OAuth authentication');
 
-      // PRIORITY 2: Try to get REAL connected accounts from Pipedream API
+      // PRIORITY 3: Try to get REAL connected accounts from Pipedream API
+      console.log('🎯 STEP 3: Checking for REAL Pipedream connected accounts...');
       const userStatus = await this.getUserStatus(slackUserId);
 
       if (userStatus.connected && userStatus.account_ids.length > 0) {
-        console.log('✅ STEP 2 SUCCESS: Found REAL connected accounts!');
-        console.log('🔗 REAL ACCOUNT IDS:', userStatus.account_ids);
-        console.log('📱 REAL CONNECTED APPS:', userStatus.account_names);
-        console.log('📊 Total Real Accounts:', userStatus.account_ids.length);
+        console.log('✅ STEP 3 SUCCESS: Found REAL connected accounts from API!');
 
         return {
           external_user_id: slackUserId,
           user_email: userStatus.primary_email || slackEmail || 'default@example.com',
-          account_ids: userStatus.account_ids, // ✅ REAL app IDs from Pipedream (like apn_EOhw3ya)
+          account_ids: userStatus.account_ids,
           dynamic: true,
-          slack_user_id: slackUserId,
-          slack_email: slackEmail,
-          connected_accounts: userStatus.pipedream_accounts,
-          total_accounts: userStatus.total_accounts,
-          auth_source: 'pipedream_connect_real_accounts',
-          external_user_id_source: 'slack',
-          email_source: userStatus.primary_email ? 'pipedream_connected_account' : 'slack_profile',
-          real_account_ids: true,
-          total_real_accounts: userStatus.account_ids.length,
-          real_app_ids_from_popup: userStatus.extracted_from_popup || false,
-          real_app_ids_count: userStatus.real_app_ids_count || 0
+          auth_source: 'pipedream_connect_api',
+          connection_quality: 'real_account_ids'
         };
       }
 
-      console.log('⚠️ STEP 2 FAILED: No real connected accounts found');
-      console.log('🎯 STEP 3: Attempting Slack email fallback...');
+      console.log('⚠️ STEP 3 FAILED: No real connected accounts from API');
 
-      // PRIORITY 3: Use Slack email if available (before static fallback)
+      // PRIORITY 4: Use Slack email if available (before static fallback)
+      console.log('🎯 STEP 4: Attempting Slack email fallback...');
       if (slackEmail) {
-        console.log('✅ STEP 3 SUCCESS: Using Slack email with static account IDs');
+        console.log('✅ STEP 4 SUCCESS: Using Slack email with static account IDs');
 
         return {
-          external_user_id: slackUserId,
+          external_user_id: external_user_id,
           user_email: slackEmail,
           account_ids: [
             "apn_XehedEz", "apn_Xehed1w", "apn_yghjwOb",
             "apn_7rhaEpm", "apn_x7hrxmn", "apn_arhpXvr"
           ],
-          dynamic: true, // Still considered dynamic since we have real user data
-          slack_user_id: slackUserId,
-          slack_email: slackEmail,
+          dynamic: true,
           auth_source: 'slack_email_fallback',
-          external_user_id_source: 'slack',
-          email_source: 'slack_profile',
-          real_account_ids: false,
-          total_real_accounts: 0,
-          fallback_reason: 'no_pipedream_auth_but_slack_email_available'
+          connection_quality: 'static_fallback'
         };
       }
 
-      console.log('⚠️ STEP 3 FAILED: No Slack email available');
+      console.log('⚠️ STEP 4 FAILED: No Slack email available');
 
     } catch (error) {
       console.error('⚠️ Error getting dynamic credentials:', error.message);
-      console.log('🎯 STEP 4: Proceeding to static fallback...');
     }
 
-    // PRIORITY 4: Return static credentials as final fallback
-    console.log('⚠️ STEP 4: Using static credentials as final fallback');
-    console.log('   🆔 External User ID Source: Static Configuration');
-    console.log('   📧 Email Source: Static Configuration');
-    console.log('   🔗 Account IDs: Static Configuration');
-    console.log('   ⚠️ REASON: No dynamic authentication or email available');
+    // FINAL FALLBACK: Return static credentials
+    console.log('⚠️ FINAL FALLBACK: Using static credentials');
 
     return {
       external_user_id: "686652ee4314417de20af851",
@@ -938,14 +922,8 @@ class PipedreamService {
         "apn_7rhaEpm", "apn_x7hrxmn", "apn_arhpXvr"
       ],
       dynamic: false,
-      slack_user_id: slackUserId,
-      slack_email: slackEmail,
       auth_source: 'static_fallback',
-      external_user_id_source: 'static_config',
-      email_source: 'static_config',
-      real_account_ids: false,
-      total_real_accounts: 0,
-      fallback_reason: 'no_dynamic_auth_or_email_available'
+      connection_quality: 'static_fallback'
     };
   }
 
@@ -992,7 +970,7 @@ class PipedreamService {
   // Get connection status for Slack display
   getConnectionStatus(slackUserId) {
     const authStatus = this.getUserAuth(slackUserId);
-    
+
     if (!authStatus.authenticated) {
       return {
         connected: false,
@@ -1219,7 +1197,7 @@ class PipedreamService {
   mapPipedreamAppToSearchApp(pipedreamAppName) {
     const mapping = {
       'Gmail': 'gmail',
-      'Google Drive': 'google_drive', 
+      'Google Drive': 'google_drive',
       'Dropbox': 'dropbox',
       'Jira': 'jira',
       'Slack': 'slack',
@@ -1229,7 +1207,7 @@ class PipedreamService {
       'Notion': 'notion',
       'Airtable': 'airtable'
     };
-    
+
     return mapping[pipedreamAppName] || pipedreamAppName.toLowerCase();
   }
 
@@ -1260,12 +1238,13 @@ class PipedreamService {
     };
   }
 
-  // Store real connection with account ID tracking
-  async storeRealConnection(external_user_id, account_id, app) {
-    console.log('💾 STORING REAL CONNECTION:');
+  // Store real connection with account ID tracking (UNIFIED VERSION)
+  async storeRealConnection(external_user_id, app, account_id, userEmail = null) {
+    console.log('💾 STORING REAL CONNECTION (UNIFIED):');
     console.log('   👤 User:', external_user_id);
     console.log('   🔗 Account ID:', account_id);
     console.log('   📱 App:', app);
+    console.log('   📧 Email:', userEmail);
 
     if (!this.realConnections) {
       this.realConnections = new Map();
@@ -1273,14 +1252,17 @@ class PipedreamService {
 
     // Get existing connections for user
     const userConnections = this.realConnections.get(external_user_id) || [];
-    
-    // Add new connection
+
+    // Add new connection with real account ID
     const newConnection = {
-      account_id: account_id,
+      account_id: account_id, // Real account ID like apn_JjhlBOP
       app: app,
+      user_email: userEmail,
       connected_at: new Date().toISOString(),
       status: 'active',
-      last_used: new Date().toISOString()
+      last_used: new Date().toISOString(),
+      source: 'pipedream_success_callback',
+      real_app_id: true
     };
 
     // Remove any existing connection for this app
@@ -1289,11 +1271,18 @@ class PipedreamService {
 
     // Store updated connections
     this.realConnections.set(external_user_id, filteredConnections);
-    
+
     console.log('✅ Real connection stored successfully');
     console.log('📊 User now has', filteredConnections.length, 'real connections');
-    
-    return newConnection;
+    console.log('🔗 All account IDs:', filteredConnections.map(c => c.account_id));
+
+    return {
+      success: true,
+      account_id: account_id,
+      app: app,
+      total_connections: filteredConnections.length,
+      real_app_id: account_id
+    };
   }
 
   // Get user's REAL connected account IDs (extracted app IDs like apn_EOhw3ya)
@@ -1340,7 +1329,7 @@ class PipedreamService {
   // Get user's REAL connected apps
   getRealConnectedApps(external_user_id) {
     console.log('📱 Getting REAL connected apps for user:', external_user_id);
-    
+
     if (!this.realConnections) {
       return [];
     }
@@ -1348,9 +1337,9 @@ class PipedreamService {
     const userConnections = this.realConnections.get(external_user_id) || [];
     const activeConnections = userConnections.filter(conn => conn.status === 'active');
     const apps = activeConnections.map(conn => this.mapPipedreamAppToSearchApp(conn.app));
-    
+
     console.log('✅ Found REAL connected apps:', apps);
-    
+
     return apps;
   }
 
@@ -1434,8 +1423,88 @@ class PipedreamService {
 
     console.log('✅ User notification sent (simulated)');
   }
+
+  // Add method to check connection status for debugging
+  getConnectionDebugInfo(external_user_id) {
+    console.log('🔍 CONNECTION DEBUG INFO for user:', external_user_id);
+    
+    const realConnections = this.realConnections?.get(external_user_id) || [];
+    const userConnections = this.userConnections?.get(external_user_id) || [];
+    
+    console.log('📊 Real Connections:', realConnections.length);
+    console.log('📊 User Connections:', userConnections.length);
+    
+    if (realConnections.length > 0) {
+      console.log('🔗 Real Account IDs:', realConnections.map(c => c.account_id));
+      console.log('📱 Real Apps:', realConnections.map(c => c.app));
+    }
+    
+    return {
+      real_connections: realConnections,
+      user_connections: userConnections,
+      has_real_connections: realConnections.length > 0,
+      real_account_ids: realConnections.map(c => c.account_id),
+      real_apps: realConnections.map(c => c.app)
+    };
+  }
 }
 
 const pipedreamServiceInstance = new PipedreamService();
 module.exports = pipedreamServiceInstance;
 module.exports.handlePipedreamWebhook = (req, res) => pipedreamServiceInstance.handleWebhookEvent(req, res);
+
+// --- Success and Error UI routes for Express server ---
+// Usage: app.use('/', require('./path/to/this/file')) or add these handlers in your server.js/app.js
+// Replace YOUR_APP_ID below with your Slack App ID or shortcut URL
+if (typeof require !== 'undefined' && require.main === module) {
+  // Standalone run (for dev/test)
+  const express = require('express');
+  const app = express();
+  const PORT = process.env.PORT || 3000;
+
+  // ... other middleware and routes ...
+
+  // Success page
+  app.get('/success', (req, res) => {
+    res.send(`
+      <html>
+        <head>
+          <title>Tool Connected Successfully</title>
+          <style>
+            body { font-family: sans-serif; text-align: center; padding-top: 50px; }
+            a { display: inline-block; margin-top: 20px; text-decoration: none; color: #007bff; font-weight: bold; }
+          </style>
+        </head>
+        <body>
+          <h1>✅ Tool Connected Successfully!</h1>
+          <p>You can return to Slack and start using your connected tool.</p>
+          <a href="https://slack.com/app_redirect?app=${process.env.SLACK_APP_ID || 'YOUR_APP_ID'}">🔁 Return to Slack</a>
+        </body>
+      </html>
+    `);
+  });
+
+  // Error page
+  app.get('/error', (req, res) => {
+    res.status(500).send(`
+      <html>
+        <head>
+          <title>Connection Failed</title>
+          <style>
+            body { font-family: sans-serif; text-align: center; padding-top: 50px; color: red; }
+            a { display: inline-block; margin-top: 20px; text-decoration: none; color: #007bff; font-weight: bold; }
+          </style>
+        </head>
+        <body>
+          <h1>❌ Failed to Connect Tool</h1>
+          <p>Something went wrong during connection. Please try again.</p>
+          <a href="https://slack.com/app_redirect?app=${process.env.SLACK_APP_ID || 'YOUR_APP_ID'}">🔁 Back to Slack</a>
+        </body>
+      </html>
+    `);
+  });
+
+  app.listen(PORT, () => {
+    console.log(`🚀 Express server running for test pages on port ${PORT}`);
+  });
+}
