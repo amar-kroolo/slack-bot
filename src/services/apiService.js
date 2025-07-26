@@ -210,7 +210,6 @@ class ApiService {
       }
 
       console.log('\n📋 Complete Response Data:');
-      console.log(JSON.stringify(response.data, null, 2));
       console.log('===== API SERVICE COMPLETE =====\n');
 
       return {

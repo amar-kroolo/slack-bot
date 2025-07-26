@@ -57,7 +57,7 @@ class ConnectToolsHandler {
       // Create tokens for all popular tools upfront (simpler approach)
       console.log('🔧 Creating tokens for all popular tools upfront');
 
-      const externalUserId = userEmail || slackUserId;
+      const externalUserId = slackUserId || userEmail;
       console.log('🔗 Creating Pipedream Connect tokens for external user:', externalUserId);
 
       // Create tokens for all available tools (updated list)
@@ -745,7 +745,7 @@ class ConnectToolsHandler {
       console.log('📧 Email:', userEmail);
 
       // Create Pipedream connect token with user email as external_user_id
-      const externalUserId = userEmail || slackUserId;
+      const externalUserId =  slackUserId || userEmail;
       console.log('🔗 Creating Pipedream Connect token for external user:', externalUserId);
 
       const connectData = await pipedreamService.createConnectToken(externalUserId, toolName);
@@ -792,7 +792,7 @@ class ConnectToolsHandler {
       console.log('👤 User:', slackUserId);
       console.log('📧 Email:', userEmail);
 
-      const externalUserId = userEmail || slackUserId;
+      const externalUserId = slackUserId ||  userEmail;
       const connectData = await pipedreamService.createConnectToken(externalUserId);
 
       const toolUrl = `https://pipedream.com/_static/connect.html?token=${connectData.token}&connectLink=true&app=${toolName}`;

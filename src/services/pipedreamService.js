@@ -3,6 +3,7 @@
 
 const { createBackendClient } = require('@pipedream/sdk/server');
 const axios = require('axios');
+const databaseService = require('./databaseService');
 
 class PipedreamService {
   constructor() {
@@ -128,16 +129,17 @@ class PipedreamService {
     }
   }
 
-  // Enhanced connect token creation with proper webhook and success URL configuration
+  // Enhanced connect token creation with Slack user ID and external ID
   async createConnectToken(external_user_id, app = null) {
     try {
-      console.log('🔗 Creating enhanced connect token for user:', external_user_id);
+      console.log('🔗 Creating connect token for user:', external_user_id);
       console.log('   App:', app || 'Any app (user choice)');
+      console.log('   Using external_user_id as identifier for Pipedream');
 
       // Use ngrok URL from environment
       const baseUrl = process.env.PIPEDREAM_WEBHOOK_BASE_URL || 'https://d6edd0a8f2b3.ngrok-free.app';
-      
-      // Configure URLs with proper parameters
+
+      // Configure URLs with proper parameters - use external_user_id (Slack user ID or email)
       const webhookUrl = `${baseUrl}/api/pipedream/webhook`;
       const successUrl = `${baseUrl}/pipedream/success?external_user_id=${encodeURIComponent(external_user_id)}&source=pipedream_connect`;
       const errorUrl = `${baseUrl}/pipedream/error?external_user_id=${encodeURIComponent(external_user_id)}`;
@@ -811,22 +813,48 @@ class PipedreamService {
     }
   }
 
-  // Enhanced getDynamicCredentials with REAL account ID priority
+  // Enhanced getDynamicCredentials with DATABASE priority
   async getDynamicCredentials(slackUserId, slackEmail = null) {
     try {
-      console.log('\n🔗 ===== ENHANCED DYNAMIC CREDENTIALS WITH REAL ACCOUNT IDS =====');
+      console.log('\n🔗 ===== ENHANCED DYNAMIC CREDENTIALS WITH DATABASE =====');
       console.log('👤 User:', slackUserId);
       console.log('📧 Slack Email:', slackEmail || 'None');
 
       const external_user_id = slackEmail || slackUserId;
 
-      // PRIORITY 1: Check for REAL connected account IDs from success callbacks
-      console.log('🎯 STEP 1: Checking for REAL account IDs from success callbacks...');
+      // PRIORITY 1: Check DATABASE for REAL connected account IDs
+      console.log('🎯 STEP 1: Checking DATABASE for REAL account IDs...');
+      try {
+        const credentials = await databaseService.getDynamicCredentials(slackUserId, slackEmail);
+
+        if (credentials.account_ids.length > 0 && credentials.source === 'dynamic_connections') {
+          console.log('✅ STEP 1 SUCCESS: Found REAL connections from DATABASE!');
+          console.log('🔗 REAL ACCOUNT IDS:', credentials.account_ids);
+          console.log('📱 CONNECTED APPS:', credentials.connected_apps);
+          console.log('📊 Real connections count:', credentials.total_connections);
+
+          return {
+            external_user_id: credentials.external_user_id,
+            user_email: credentials.user_email,
+            account_ids: credentials.account_ids, // ✅ REAL account IDs from database
+            apps: credentials.connected_apps, // ✅ REAL connected apps
+            dynamic: true,
+            real_connections_count: credentials.total_connections,
+            auth_source: 'database_real_connections',
+            connection_quality: 'real_account_ids'
+          };
+        }
+      } catch (dbError) {
+        console.warn('⚠️ Database query failed, falling back to in-memory:', dbError.message);
+      }
+
+      // PRIORITY 2: Check IN-MEMORY for REAL connected account IDs (fallback)
+      console.log('🎯 STEP 2: Checking IN-MEMORY for REAL account IDs...');
       const realAccountIds = this.getRealAccountIds(external_user_id);
       const realApps = this.getRealConnectedApps(external_user_id);
 
       if (realAccountIds.length > 0) {
-        console.log('✅ STEP 1 SUCCESS: Found REAL connections from success callbacks!');
+        console.log('✅ STEP 2 SUCCESS: Found REAL connections from IN-MEMORY!');
         console.log('🔗 REAL ACCOUNT IDS:', realAccountIds);
         console.log('📱 REAL APPS:', realApps);
         console.log('📊 Real connections count:', realAccountIds.length);
@@ -834,16 +862,16 @@ class PipedreamService {
         return {
           external_user_id: external_user_id,
           user_email: slackEmail || 'default@example.com',
-          account_ids: realAccountIds, // ✅ REAL account IDs from connections
+          account_ids: realAccountIds, // ✅ REAL account IDs from in-memory
           apps: realApps, // ✅ REAL connected apps
           dynamic: true,
           real_connections_count: realAccountIds.length,
-          auth_source: 'pipedream_real_connections',
+          auth_source: 'memory_real_connections',
           connection_quality: 'real_account_ids'
         };
       }
 
-      console.log('⚠️ STEP 1 FAILED: No real connections found from success callbacks');
+      console.log('⚠️ STEP 2 FAILED: No real connections found from in-memory storage');
 
       // PRIORITY 2: Try Pipedream OAuth authentication
       console.log('🎯 STEP 2: Checking Pipedream OAuth authentication...');
@@ -1238,50 +1266,99 @@ class PipedreamService {
     };
   }
 
-  // Store real connection with account ID tracking (UNIFIED VERSION)
+  // Store real connection with account ID tracking (DATABASE VERSION)
   async storeRealConnection(external_user_id, app, account_id, userEmail = null) {
-    console.log('💾 STORING REAL CONNECTION (UNIFIED):');
+    console.log('💾 STORING REAL CONNECTION (DATABASE):');
     console.log('   👤 User:', external_user_id);
     console.log('   🔗 Account ID:', account_id);
     console.log('   📱 App:', app);
     console.log('   📧 Email:', userEmail);
 
+    try {
+      // First, ensure user exists in database
+      const userData = {
+        slackUserId: external_user_id,
+        externalUserId: external_user_id,
+        primaryEmail: userEmail
+      };
+
+      const user = await databaseService.createOrUpdateUser(userData);
+
+      // Store the connection
+      const connectionData = {
+        userId: user._id,
+        slackUserId: external_user_id,
+        externalUserId: external_user_id,
+        appName: app,
+        accountId: account_id,
+        accountEmail: userEmail,
+        connectionSource: 'pipedream_webhook',
+        status: 'active',
+        isHealthy: true,
+        connectedAt: new Date(),
+        metadata: {
+          source: 'pipedream_webhook',
+          webhook_timestamp: new Date().toISOString(),
+          real_app_id: true
+        }
+      };
+
+      const connection = await databaseService.storeConnection(connectionData);
+
+      // Get updated user connections for summary
+      const allConnections = await databaseService.getUserConnections(external_user_id);
+
+      console.log('✅ Real connection stored successfully in database');
+      console.log(`📊 User now has ${allConnections.length} real connections`);
+      console.log('🔗 All account IDs:', allConnections.map(c => c.accountId));
+
+      return {
+        success: true,
+        account_id: account_id,
+        app: app,
+        total_connections: allConnections.length,
+        real_app_id: account_id,
+        connection_data: connection.getConnectionSummary()
+      };
+
+    } catch (error) {
+      console.error('❌ Error storing real connection:', error.message);
+
+      // Fallback to in-memory storage if database fails
+      console.warn('⚠️ Falling back to in-memory storage');
+      return this.storeRealConnectionFallback(external_user_id, app, account_id, userEmail);
+    }
+  }
+
+  // Fallback method for in-memory storage
+  storeRealConnectionFallback(external_user_id, app, account_id, userEmail = null) {
     if (!this.realConnections) {
       this.realConnections = new Map();
     }
 
-    // Get existing connections for user
     const userConnections = this.realConnections.get(external_user_id) || [];
+    const filteredConnections = userConnections.filter(conn => conn.app !== app);
 
-    // Add new connection with real account ID
     const newConnection = {
-      account_id: account_id, // Real account ID like apn_JjhlBOP
+      account_id: account_id,
       app: app,
       user_email: userEmail,
       connected_at: new Date().toISOString(),
       status: 'active',
-      last_used: new Date().toISOString(),
-      source: 'pipedream_success_callback',
+      source: 'pipedream_webhook_fallback',
       real_app_id: true
     };
 
-    // Remove any existing connection for this app
-    const filteredConnections = userConnections.filter(conn => conn.app !== app);
     filteredConnections.push(newConnection);
-
-    // Store updated connections
     this.realConnections.set(external_user_id, filteredConnections);
-
-    console.log('✅ Real connection stored successfully');
-    console.log('📊 User now has', filteredConnections.length, 'real connections');
-    console.log('🔗 All account IDs:', filteredConnections.map(c => c.account_id));
 
     return {
       success: true,
       account_id: account_id,
       app: app,
       total_connections: filteredConnections.length,
-      real_app_id: account_id
+      real_app_id: account_id,
+      fallback: true
     };
   }
 
@@ -1453,58 +1530,3 @@ const pipedreamServiceInstance = new PipedreamService();
 module.exports = pipedreamServiceInstance;
 module.exports.handlePipedreamWebhook = (req, res) => pipedreamServiceInstance.handleWebhookEvent(req, res);
 
-// --- Success and Error UI routes for Express server ---
-// Usage: app.use('/', require('./path/to/this/file')) or add these handlers in your server.js/app.js
-// Replace YOUR_APP_ID below with your Slack App ID or shortcut URL
-if (typeof require !== 'undefined' && require.main === module) {
-  // Standalone run (for dev/test)
-  const express = require('express');
-  const app = express();
-  const PORT = process.env.PORT || 3000;
-
-  // ... other middleware and routes ...
-
-  // Success page
-  app.get('/success', (req, res) => {
-    res.send(`
-      <html>
-        <head>
-          <title>Tool Connected Successfully</title>
-          <style>
-            body { font-family: sans-serif; text-align: center; padding-top: 50px; }
-            a { display: inline-block; margin-top: 20px; text-decoration: none; color: #007bff; font-weight: bold; }
-          </style>
-        </head>
-        <body>
-          <h1>✅ Tool Connected Successfully!</h1>
-          <p>You can return to Slack and start using your connected tool.</p>
-          <a href="https://slack.com/app_redirect?app=${process.env.SLACK_APP_ID || 'YOUR_APP_ID'}">🔁 Return to Slack</a>
-        </body>
-      </html>
-    `);
-  });
-
-  // Error page
-  app.get('/error', (req, res) => {
-    res.status(500).send(`
-      <html>
-        <head>
-          <title>Connection Failed</title>
-          <style>
-            body { font-family: sans-serif; text-align: center; padding-top: 50px; color: red; }
-            a { display: inline-block; margin-top: 20px; text-decoration: none; color: #007bff; font-weight: bold; }
-          </style>
-        </head>
-        <body>
-          <h1>❌ Failed to Connect Tool</h1>
-          <p>Something went wrong during connection. Please try again.</p>
-          <a href="https://slack.com/app_redirect?app=${process.env.SLACK_APP_ID || 'YOUR_APP_ID'}">🔁 Back to Slack</a>
-        </body>
-      </html>
-    `);
-  });
-
-  app.listen(PORT, () => {
-    console.log(`🚀 Express server running for test pages on port ${PORT}`);
-  });
-}

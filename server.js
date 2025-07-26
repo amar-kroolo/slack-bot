@@ -3,6 +3,7 @@
 // Express server for OAuth callbacks and health checks
 const express = require('express');
 const authRoutes = require('./src/routes/auth');
+const toolsRoutes = require('./src/routes/tools');
 require('dotenv').config();
 
 const app = express();
@@ -14,6 +15,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // IMPORTANT: Mount webhook route BEFORE the middleware that logs it
 app.use('/', authRoutes);
+app.use('/api/tools', toolsRoutes);
 
 // Remove the conflicting middleware that was causing 404
 // This was intercepting the webhook before it reached the actual handler
