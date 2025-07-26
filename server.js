@@ -12,8 +12,11 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Routes
-app.use('/auth', authRoutes);
+// IMPORTANT: Mount webhook route BEFORE the middleware that logs it
+app.use('/', authRoutes);
+
+// Remove the conflicting middleware that was causing 404
+// This was intercepting the webhook before it reached the actual handler
 
 // Pipedream Connect Apps page
 app.get('/connect-apps', async (req, res) => {

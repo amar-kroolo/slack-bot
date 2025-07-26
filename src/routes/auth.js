@@ -182,98 +182,119 @@ router.get('/test-app-id-extraction', async (req, res) => {
   }
 });
 
-// Enhanced Pipedream Connect success callback with real app ID tracking
+// Enhanced Pipedream Connect success callback with real account ID tracking
 router.get('/pipedream/success', async (req, res) => {
   try {
-    console.log('🎉 PIPEDREAM CONNECTION SUCCESS!');
+    console.log('\n🎉 ===== ENHANCED PIPEDREAM SUCCESS CALLBACK =====');
     console.log('📊 Query params:', req.query);
     console.log('📊 Headers:', req.headers);
+    console.log('🌐 Full URL:', req.url);
+    console.log('⏰ Timestamp:', new Date().toISOString());
 
-    // Extract the real app ID from ap_id parameter (like apn_EOhw3ya)
-    const { external_user_id, account_id, app, token, ap_id, is_connect } = req.query;
+    const { external_user_id, account_id, app, token, ap_id, source } = req.query;
+    
+    // Priority: Use ap_id if available, otherwise account_id
+    const realAccountId = ap_id || account_id;
+    
+    // Check if we have the minimum required data
+    if (external_user_id && realAccountId) {
+      console.log('✅ VALID SUCCESS CALLBACK - Storing connection...');
 
-    // Priority 1: Use ap_id if available (this is the real Pipedream app ID)
-    const realAppId = ap_id || account_id;
-
-    if (external_user_id && realAppId) {
-      console.log('✅ REAL CONNECTION DETECTED:');
-      console.log('   👤 User:', external_user_id);
-      console.log('   🔗 Real App ID:', realAppId);
-      console.log('   📱 App:', app || 'Unknown');
-      console.log('   🎯 Token:', token ? `${token.substring(0, 20)}...` : 'No token');
-      console.log('   🔗 Is Connect:', is_connect);
-
-      // Store the REAL connection immediately (like your frontend onSuccess callback)
       const pipedreamService = require('../services/pipedreamService');
-
-      // Map app name to match your frontend logic
-      let appSlug = app;
-      if (app === 'Google Drive') appSlug = 'google_drive';
-      if (app === 'Microsoft Teams') appSlug = 'microsoft_teams';
-      if (app === 'Document 360') appSlug = 'document360';
-
       const storeResult = await pipedreamService.storeRealConnection(
-        external_user_id,
-        appSlug,
-        realAppId, // Use the real app ID (ap_id)
-        null // email will be extracted from user context
+        external_user_id, 
+        app || 'unknown_app', 
+        realAccountId, 
+        null
       );
-
+      
       if (storeResult.success) {
-        console.log('✅ Real connection stored successfully!');
+        console.log('✅ Connection stored successfully from success callback!');
         console.log('   📊 Total connections for user:', storeResult.total_connections);
-        console.log('   🔗 Stored App ID:', realAppId);
+        console.log('   🔗 Stored Account ID:', realAccountId);
 
-        // Notify the user in Slack about successful connection
-        await pipedreamService.notifyConnectionSuccess(external_user_id, appSlug, realAppId);
+        // 🎯 TRIGGER WEBHOOK CALL AFTER SUCCESS
+        console.log('🔄 Triggering webhook call after success...');
+        try {
+          const axios = require('axios');
+          const webhookData = {
+            event: 'CONNECTION_SUCCESS',
+            account: {
+              id: realAccountId,
+              email: null
+            },
+            app: {
+              name: app || 'unknown_app',
+              name_slug: app || 'unknown_app'
+            },
+            user_id: external_user_id,
+            external_user_id: external_user_id,
+            source: 'success_callback_trigger'
+          };
+
+          const webhookUrl = `${req.protocol}://${req.get('host')}/api/pipedream/webhook`;
+          console.log('📡 Calling webhook URL:', webhookUrl);
+          
+          const webhookResponse = await axios.post(webhookUrl, webhookData, {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 5000
+          });
+          
+          console.log('✅ Webhook triggered successfully:', webhookResponse.data);
+        } catch (webhookError) {
+          console.error('❌ Failed to trigger webhook:', webhookError.message);
+        }
       } else {
-        console.error('❌ Failed to store real connection:', storeResult.error);
+        console.error('❌ Failed to store connection:', storeResult.error);
       }
-    } else if (realAppId && !external_user_id) {
-      // Handle case where we have app ID but no external user ID
-      console.log('⚠️ PARTIAL CONNECTION: App ID found but no external user ID');
-      console.log('   🔗 Real App ID:', realAppId);
-      console.log('   📱 App:', app || 'Unknown');
-
-      // Try to extract user ID from URL or other sources
-      // This might happen in some authentication flows
+    } else {
+      console.warn('⚠️ MISSING REQUIRED PARAMETERS');
+      console.warn('   Missing external_user_id:', !external_user_id);
+      console.warn('   Missing account_id/ap_id:', !realAccountId);
     }
 
-    // Show success page
+    // Enhanced success page
     res.send(`
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Connection Successful!</title>
+          <title>Connection Status</title>
           <style>
-            body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
-            .success { color: #27ae60; font-size: 48px; }
-            .details { background: #f8f9fa; padding: 20px; margin: 20px; border-radius: 8px; }
-            .app-id { background: #e8f5e8; padding: 10px; border-radius: 5px; font-family: monospace; margin: 10px 0; }
+            body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f8f9fa; }
+            .container { max-width: 600px; margin: 0 auto; background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+            .success { color: #27ae60; font-size: 48px; margin-bottom: 20px; }
+            .details { background: #e8f5e8; padding: 20px; margin: 20px 0; border-radius: 8px; border-left: 4px solid #27ae60; }
+            .btn { display: inline-block; padding: 12px 24px; background: #27ae60; color: white; text-decoration: none; border-radius: 6px; margin-top: 20px; }
           </style>
         </head>
         <body>
-          <div class="success">🎉</div>
-          <h1>Successfully Connected!</h1>
-          <p>Your ${app || 'tool'} account has been connected successfully.</p>
-
-          <div class="details">
-            <strong>Connection Details:</strong><br>
-            👤 User: ${external_user_id || 'Not provided'}<br>
-            🔗 Real App ID: <div class="app-id">${realAppId || 'Not extracted'}</div>
-            📱 App: ${app || 'General'}<br>
-            ⏰ Connected: ${new Date().toLocaleString()}<br>
-            ${ap_id ? `🎯 Extracted from ap_id: ${ap_id}` : ''}
+          <div class="container">
+            <div class="success">✅</div>
+            <h1>Connection Successful!</h1>
+            <p>Your Pipedream account has been connected successfully.</p>
+            
+            <div class="details">
+              <strong>Connection Details:</strong><br>
+              🔗 Account ID: ${realAccountId || 'Not available'}<br>
+              📱 App: ${app || 'Not specified'}<br>
+              👤 User: ${external_user_id || 'Not provided'}<br>
+              🎯 Source: ${source || 'pipedream_connect'}<br>
+              ⏰ Connected: ${new Date().toLocaleString()}
+            </div>
+            
+            <p>You can now close this window and return to Slack.</p>
+            ${realAccountId ? '<p><strong>Your bot will now use this real account ID for searches!</strong></p>' : '<p><strong>Please check server logs for debugging information.</strong></p>'}
+            
+            <a href="javascript:window.close()" class="btn">Close Window</a>
           </div>
-
-          <p>You can now close this window and return to Slack.</p>
-          <p>Your bot will now use this real app ID (${realAppId}) for searches!</p>
         </body>
       </html>
     `);
 
+    console.log('===== END ENHANCED SUCCESS CALLBACK =====\n');
+
   } catch (error) {
-    console.error('❌ Error in success callback:', error.message);
+    console.error('❌ Error in enhanced success callback:', error.message);
     res.status(500).send('Error processing connection');
   }
 });
@@ -429,6 +450,74 @@ router.get('/pipedream/error', async (req, res) => {
         </body>
       </html>
     `);
+  }
+});
+
+// Enhanced Pipedream webhook handler
+// Enhanced Pipedream webhook handler - ENSURE this is BEFORE module.exports
+router.post('/api/pipedream/webhook', async (req, res) => {
+  try {
+    console.log('\n🎯 ===== PIPEDREAM WEBHOOK RECEIVED =====');
+    console.log('📥 Webhook Event Received:', JSON.stringify(req.body, null, 2));
+    console.log('📊 Headers:', JSON.stringify(req.headers, null, 2));
+    console.log('⏰ Timestamp:', new Date().toISOString());
+
+    const { body } = req;
+    const { account, app, user_id, event, external_user_id, connection } = body;
+
+    // Extract all possible user identifiers
+    const userId = user_id || external_user_id || connection?.external_user_id;
+    const accountId = account?.id || connection?.account?.id;
+    const appName = app?.name || app?.name_slug || connection?.app?.name;
+
+    console.log('🧩 Extracted Webhook Details:');
+    console.log('   🔗 Account ID:', accountId);
+    console.log('   📱 App Name:', appName);
+    console.log('   👤 User ID:', userId);
+    console.log('   🎯 Event Type:', event);
+
+    if (!accountId || !appName || !userId) {
+      console.error('❌ Missing required fields in webhook payload');
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // Handle CONNECTION_SUCCESS event
+    if (event === 'CONNECTION_SUCCESS' || event === 'connection.created') {
+      console.log('🎉 CONNECTION SUCCESS EVENT - Processing...');
+      
+      const pipedreamService = require('../services/pipedreamService');
+      
+      // Store the real connection
+      const storeResult = await pipedreamService.storeRealConnection(
+        userId, 
+        appName, 
+        accountId, 
+        account?.email || null
+      );
+      
+      if (storeResult.success) {
+        console.log('✅ Real connection stored successfully from webhook!');
+        console.log('   📊 Total connections:', storeResult.total_connections);
+        console.log('   🔗 Stored Account ID:', accountId);
+        console.log('   📱 Stored App:', appName);
+      } else {
+        console.error('❌ Failed to store real connection:', storeResult.error);
+      }
+    }
+
+    console.log('✅ Webhook processed successfully');
+    res.status(200).json({ 
+      status: 'success', 
+      message: 'Webhook processed successfully',
+      processed_at: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('❌ Error processing webhook event:', error.message);
+    res.status(500).json({ 
+      error: 'Internal Server Error', 
+      message: error.message 
+    });
   }
 });
 
