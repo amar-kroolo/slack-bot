@@ -448,51 +448,39 @@ router.post('/api/pipedream/webhook', async (req, res) => {
     if (event === 'CONNECTION_SUCCESS' || event === 'connection.created') {
       console.log('🎉 CONNECTION SUCCESS EVENT - Storing essential data only...');
 
-      // Check database connectivity first
-      const databaseConfig = require('../config/database');
-      const isDatabaseConnected = databaseConfig.isConnectionHealthy();
-
-      console.log('🔍 Database connectivity check:', isDatabaseConnected ? '✅ Connected' : '❌ Disconnected');
-
-      if (isDatabaseConnected) {
-        try {
-          // Use database service to store essential data
-          const databaseService = require('../services/databaseService');
-
-          console.log('💾 Storing in MongoDB...');
-          const storeResult = await databaseService.storeEssentialConnection({
-            userId,
-            accountId,
-            appName,
-            appDisplayName,
-            accountEmail,
-            categories
-          });
-
-          if (storeResult.success) {
-            console.log('✅ ESSENTIAL DATA STORED IN MONGODB SUCCESSFULLY!');
-            console.log('   📊 Connection ID:', storeResult.connection._id);
-            console.log('   🔗 Account ID:', storeResult.connection.accountId);
-            console.log('   📱 App Name:', storeResult.connection.appName);
-            console.log('   📱 App Display Name:', storeResult.connection.appDisplayName);
-            console.log('   🏷️ Categories:', storeResult.connection.categories);
-            console.log('   👤 User ID:', storeResult.connection.slackUserId);
-            console.log('   📧 User Email:', storeResult.connection.accountEmail);
-          } else {
-            console.error('❌ Failed to store essential data in MongoDB');
-          }
-
-        } catch (dbError) {
-          console.error('❌ MongoDB storage error:', dbError.message);
-          console.log('⚠️ Falling back to in-memory storage...');
-        }
-      } else {
-        console.log('⚠️ Database not connected - using in-memory storage only');
-      }
-
-      // Always store in pipedream service for backward compatibility and as fallback
       try {
-        console.log('💾 Storing in Pipedream service (in-memory)...');
+        // Use database service to store essential data
+        const databaseService = require('../services/databaseService');
+
+        console.log("calling databaseService");
+        // Store connection using new model (arrays for appNames/accountIds/accountEmails)
+        const storeResult = await databaseService.storeConnection({
+          slackUserId: userId,
+          appName,
+          accountId,
+          accountEmail
+        });
+
+        if (storeResult) {
+          console.log('✅ ESSENTIAL DATA STORED SUCCESSFULLY!');
+          console.log('   📊 Connection:', storeResult);
+          // Also store in pipedream service for backward compatibility
+          const pipedreamService = require('../services/pipedreamService');
+          await pipedreamService.storeRealConnection(
+            userId,
+            appName,
+            accountId,
+            accountEmail
+          );
+        } else {
+          console.error('❌ Failed to store essential data');
+        }
+
+      } catch (dbError) {
+        console.error('❌ Database storage error:', dbError.message);
+
+        // Fallback to pipedream service storage
+        console.log('⚠️ Falling back to pipedream service storage...');
         const pipedreamService = require('../services/pipedreamService');
         const fallbackResult = await pipedreamService.storeRealConnection(
           userId,
@@ -502,14 +490,8 @@ router.post('/api/pipedream/webhook', async (req, res) => {
         );
 
         if (fallbackResult.success) {
-          console.log('✅ Pipedream service storage successful');
-          console.log('   🔗 Real App ID stored:', accountId);
-          console.log('   📱 App:', appName);
-          console.log('   👤 User:', userId);
-          console.log('   📧 Email:', accountEmail);
+          console.log('✅ Fallback storage successful');
         }
-      } catch (serviceError) {
-        console.error('❌ Pipedream service storage error:', serviceError.message);
       }
     }
 

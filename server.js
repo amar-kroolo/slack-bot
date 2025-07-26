@@ -1,4 +1,16 @@
-#!/usr/bin/env node
+// server.js - Main entry point
+const databaseConfig = require('./src/config/database');
+require('dotenv').config();
+// Start server only after DB is connected
+(async () => {
+  try {
+    await databaseConfig.connect();
+    await databaseConfig.initialize(); // Ensures indexes
+  } catch (err) {
+    console.error('❌ Failed to start server:', err.message);
+    process.exit(1);
+  }
+})();
 
 // Express server for OAuth callbacks and health checks
 const express = require('express');
