@@ -1,8 +1,21 @@
-#!/usr/bin/env node
+// server.js - Main entry point
+const databaseConfig = require('./src/config/database');
+require('dotenv').config();
+// Start server only after DB is connected
+(async () => {
+  try {
+    await databaseConfig.connect();
+    await databaseConfig.initialize(); // Ensures indexes
+  } catch (err) {
+    console.error('❌ Failed to start server:', err.message);
+    process.exit(1);
+  }
+})();
 
 // Express server for OAuth callbacks and health checks
 const express = require('express');
 const authRoutes = require('./src/routes/auth');
+const toolsRoutes = require('./src/routes/tools');
 require('dotenv').config();
 
 const app = express();
@@ -14,6 +27,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // IMPORTANT: Mount webhook route BEFORE the middleware that logs it
 app.use('/', authRoutes);
+app.use('/api/tools', toolsRoutes);
 
 // Remove the conflicting middleware that was causing 404
 // This was intercepting the webhook before it reached the actual handler

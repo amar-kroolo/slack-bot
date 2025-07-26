@@ -3,6 +3,7 @@
 
 const express = require('express');
 const pipedreamService = require('../services/pipedreamService');
+const databaseService = require('../services/databaseService');
 
 const router = express.Router();
 
@@ -128,58 +129,6 @@ router.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     service: 'oauth-auth'
   });
-});
-
-// Test endpoint to simulate app ID extraction
-router.get('/test-app-id-extraction', async (req, res) => {
-  try {
-    console.log('🧪 Testing app ID extraction');
-
-    // Simulate the URL from your screenshot: pipedream.com/popup/auth/success?ap_id=apn_EOhw3ya&is_connect=true
-    const testParams = {
-      ap_id: 'apn_EOhw3ya',
-      is_connect: 'true',
-      external_user_id: 'test_user_123',
-      app: 'google_drive'
-    };
-
-    console.log('🔍 Test parameters:', testParams);
-
-    const pipedreamService = require('../services/pipedreamService');
-
-    // Store the test connection
-    const storeResult = await pipedreamService.storeRealConnection(
-      testParams.external_user_id,
-      testParams.app,
-      testParams.ap_id,
-      'test@example.com'
-    );
-
-    // Get user status to verify storage
-    const userStatus = await pipedreamService.getUserStatus(testParams.external_user_id);
-
-    // Get dynamic payload to verify it's used in API calls
-    const dynamicPayload = await pipedreamService.getDynamicCredentials(testParams.external_user_id, 'test@slack.com');
-
-    res.json({
-      test: 'app_id_extraction',
-      success: true,
-      test_params: testParams,
-      store_result: storeResult,
-      user_status: userStatus,
-      dynamic_payload: dynamicPayload,
-      extracted_app_id: testParams.ap_id,
-      timestamp: new Date().toISOString()
-    });
-
-  } catch (error) {
-    console.error('❌ Test error:', error.message);
-    res.status(500).json({
-      test: 'app_id_extraction',
-      success: false,
-      error: error.message
-    });
-  }
 });
 
 // Enhanced Pipedream Connect success callback with real account ID tracking
@@ -453,70 +402,121 @@ router.get('/pipedream/error', async (req, res) => {
   }
 });
 
-// Enhanced Pipedream webhook handler
-// Enhanced Pipedream webhook handler - ENSURE this is BEFORE module.exports
+// Simplified Pipedream webhook handler - stores only essential data
 router.post('/api/pipedream/webhook', async (req, res) => {
   try {
     console.log('\n🎯 ===== PIPEDREAM WEBHOOK RECEIVED =====');
     console.log('📥 Webhook Event Received:', JSON.stringify(req.body, null, 2));
-    console.log('📊 Headers:', JSON.stringify(req.headers, null, 2));
     console.log('⏰ Timestamp:', new Date().toISOString());
 
     const { body } = req;
-    const { account, app, user_id, event, external_user_id, connection } = body;
+    const { account, event } = body;
 
-    // Extract all possible user identifiers
-    const userId = user_id || external_user_id || connection?.external_user_id;
-    const accountId = account?.id || connection?.account?.id;
-    const appName = app?.name || app?.name_slug || connection?.app?.name;
+    // Extract essential data only
+    const userId = account?.external_id || account?.name;
+    const accountId = account?.id;
+    const appName = account?.app?.name_slug;
+    const appDisplayName = account?.app?.name;
+    const accountEmail = account?.name || account?.external_id;
+    const categories = account?.app?.categories;
 
-    console.log('🧩 Extracted Webhook Details:');
+    console.log('🧩 Extracted Essential Data:');
     console.log('   🔗 Account ID:', accountId);
     console.log('   📱 App Name:', appName);
-    console.log('   👤 User ID:', userId);
+    console.log('   �👤 User ID:', userId);
+    console.log('   � App Display Name:', appDisplayName);
+    console.log('   �📧 Account Email:', accountEmail);
     console.log('   🎯 Event Type:', event);
+    console.log('   🏷️ App Categories:', categories);
 
     if (!accountId || !appName || !userId) {
       console.error('❌ Missing required fields in webhook payload');
-      return res.status(400).json({ error: 'Missing required fields' });
+      console.error('   Missing Account ID:', !accountId);
+      console.error('   Missing App Name:', !appName);
+      console.error('   Missing User ID:', !userId);
+      return res.status(400).json({
+        error: 'Missing required fields',
+        missing: {
+          accountId: !accountId,
+          appName: !appName,
+          userId: !userId
+        }
+      });
     }
 
-    // Handle CONNECTION_SUCCESS event
+    // Handle CONNECTION_SUCCESS event with essential data storage only
     if (event === 'CONNECTION_SUCCESS' || event === 'connection.created') {
-      console.log('🎉 CONNECTION SUCCESS EVENT - Processing...');
-      
-      const pipedreamService = require('../services/pipedreamService');
-      
-      // Store the real connection
-      const storeResult = await pipedreamService.storeRealConnection(
-        userId, 
-        appName, 
-        accountId, 
-        account?.email || null
-      );
-      
-      if (storeResult.success) {
-        console.log('✅ Real connection stored successfully from webhook!');
-        console.log('   📊 Total connections:', storeResult.total_connections);
-        console.log('   🔗 Stored Account ID:', accountId);
-        console.log('   📱 Stored App:', appName);
-      } else {
-        console.error('❌ Failed to store real connection:', storeResult.error);
+      console.log('🎉 CONNECTION SUCCESS EVENT - Storing essential data only...');
+
+      try {
+        // Use database service to store essential data
+        const databaseService = require('../services/databaseService');
+
+        console.log("calling databaseService");
+        // Store connection using new model (arrays for appNames/accountIds/accountEmails)
+        const storeResult = await databaseService.storeConnection({
+          slackUserId: userId,
+          appName,
+          accountId,
+          accountEmail
+        });
+
+        if (storeResult) {
+          console.log('✅ ESSENTIAL DATA STORED SUCCESSFULLY!');
+          console.log('   📊 Connection:', storeResult);
+          // Also store in pipedream service for backward compatibility
+          const pipedreamService = require('../services/pipedreamService');
+          await pipedreamService.storeRealConnection(
+            userId,
+            appName,
+            accountId,
+            accountEmail
+          );
+        } else {
+          console.error('❌ Failed to store essential data');
+        }
+
+      } catch (dbError) {
+        console.error('❌ Database storage error:', dbError.message);
+
+        // Fallback to pipedream service storage
+        console.log('⚠️ Falling back to pipedream service storage...');
+        const pipedreamService = require('../services/pipedreamService');
+        const fallbackResult = await pipedreamService.storeRealConnection(
+          userId,
+          appName,
+          accountId,
+          accountEmail
+        );
+
+        if (fallbackResult.success) {
+          console.log('✅ Fallback storage successful');
+        }
       }
     }
 
     console.log('✅ Webhook processed successfully');
-    res.status(200).json({ 
-      status: 'success', 
+    res.status(200).json({
+      status: 'success',
       message: 'Webhook processed successfully',
-      processed_at: new Date().toISOString()
+      processed_at: new Date().toISOString(),
+      data_stored: {
+        account_id: accountId,
+        app_name: appName,
+        app_display_name: appDisplayName,
+        user_id: userId,
+        account_email: accountEmail,
+        categories: categories,
+        essential_data_only: true
+      }
     });
 
   } catch (error) {
-    console.error('❌ Error processing webhook event:', error.message);
-    res.status(500).json({ 
-      error: 'Internal Server Error', 
-      message: error.message 
+    console.error('❌ Error processing enhanced webhook event:', error.message);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: error.message,
+      timestamp: new Date().toISOString()
     });
   }
 });

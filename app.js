@@ -2,6 +2,7 @@ const { App } = require('@slack/bolt');
 const dotenv = require('dotenv');
 const queryHandler = require('./src/handlers/queryHandler');
 const { formatResponse } = require('./src/utils/formatter');
+const databaseConfig = require('./src/config/database');
 
 // Load environment variables
 dotenv.config();
@@ -484,6 +485,16 @@ process.on('unhandledRejection', (reason, promise) => {
 
     if (useSocketMode) {
       console.log('   SLACK_APP_TOKEN:', process.env.SLACK_APP_TOKEN ? '✅ Set' : '❌ Missing');
+    }
+
+    // Initialize database connection
+    console.log('🔄 Initializing database connection...');
+    try {
+      await databaseConfig.initialize();
+      console.log('✅ Database initialized successfully');
+    } catch (dbError) {
+      console.error('❌ Database initialization failed:', dbError.message);
+      console.warn('⚠️ Continuing without database - using in-memory storage');
     }
 
     await app.start();
