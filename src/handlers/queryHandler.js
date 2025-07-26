@@ -38,16 +38,6 @@ class QueryHandler {
         return await this.handleSlackCommand(slackCommand, slackUserId);
       }
 
-      // Check if this is a tool status command
-      if (query.toLowerCase().includes('tool status') ||
-          query.toLowerCase().includes('tools status') ||
-          query.toLowerCase().includes('status tools') ||
-          query.toLowerCase().includes('connection status') ||
-          query.toLowerCase().includes('show connections')) {
-        console.log('🔧 Tool status command detected');
-        return await this.handleToolStatusCommand(slackUserId, userContext);
-      }
-
       // Step 1: Parse the natural language query with enhanced NLP
       console.log('\n📊 STEP 1: Starting Query Parsing...');
       const parsedQuery = await this.parseQuery(query);
@@ -59,18 +49,12 @@ class QueryHandler {
         };
       }
 
-      // Check if this is a general query response
-      if (parsedQuery.message) {
-        console.log('💬 STEP 1 RESULT: General query detected, providing helpful response');
-        return this.createHelpfulGeneralResponse(query, userContext);
-      }
-
       console.log('✅ STEP 1 SUCCESS: Query parsed successfully');
       console.log('🎯 Selected API:', parsedQuery.api);
       console.log('📋 Extracted Parameters:', JSON.stringify(parsedQuery.parameters, null, 2));
       console.log('📈 Confidence Score:', parsedQuery.confidence);
       console.log('🔧 Method Used:', parsedQuery.method || parsedQuery.intent);
-      console.log('🤖 AI Provider:', parsedQuery.aiProvider || 'Gemini');
+      console.log('🤖 AI Provider:', parsedQuery.aiProvider || 'OpenAI');
       if (parsedQuery.reasoning) {
         console.log('💭 AI Reasoning:', parsedQuery.reasoning);
       }
@@ -85,7 +69,7 @@ class QueryHandler {
           type: 'conversational',
           confidence: parsedQuery.confidence,
           intent: parsedQuery.intent,
-          aiProvider: 'Gemini NLP',
+          aiProvider: 'OpenAI NLP',
           method: 'conversational_ai',
           apiUsed: 'conversational', 
           parameters: {}        
@@ -112,8 +96,7 @@ class QueryHandler {
       const apiResponse = await apiService.callAPI(
         parsedQuery.api,
         parsedQuery.parameters,
-        slackUserId,
-        userContext.slackEmail
+        slackUserId
       );
       const apiDuration = Date.now() - apiStartTime;
 
@@ -221,102 +204,6 @@ class QueryHandler {
   }
 
   // ... rest of your existing methods remain the same
-  // Create helpful response for general queries
-  createHelpfulGeneralResponse(query, userContext = null) {
-    console.log('🎯 Creating helpful response for general query:', query);
-
-    const userName = userContext?.slackRealName || userContext?.slackName || 'there';
-
-    return {
-      response_type: 'ephemeral',
-      text: `👋 Hi ${userName}! I'm your Enterprise Search Assistant`,
-      attachments: [{
-        color: 'good',
-        title: '🔍 What I Can Help You With',
-        text: 'I can help you search and find information across your connected tools:',
-        fields: [
-          {
-            title: '📊 Search Commands',
-            value: '• "search for project reports"\n• "find documents about marketing"\n• "show me files from last week"',
-            short: true
-          },
-          {
-            title: '📈 Analytics Commands',
-            value: '• "show trending documents"\n• "what\'s popular today"\n• "get my recent searches"',
-            short: true
-          }
-        ]
-      }, {
-        color: '#36a64f',
-        title: '🛠️ Available Tools & APIs',
-        text: 'I can search across these connected platforms:',
-        fields: [
-          {
-            title: '☁️ Cloud Storage',
-            value: '• Google Drive\n• Dropbox\n• SharePoint',
-            short: true
-          },
-          {
-            title: '💼 Business Tools',
-            value: '• Jira\n• Confluence\n• Slack\n• Microsoft Teams',
-            short: true
-          },
-          {
-            title: '📚 Documentation',
-            value: '• Document 360\n• Zendesk\n• Notion',
-            short: true
-          },
-          {
-            title: '🔧 Development',
-            value: '• GitHub\n• Airtable\n• Custom APIs',
-            short: true
-          }
-        ]
-      }, {
-        color: '#4A154B',
-        title: '🚀 Quick Actions',
-        text: 'Try these commands to get started:',
-        actions: [
-          {
-            type: 'button',
-            text: '🔗 Connect Tools',
-            value: 'connect_tools_action',
-            style: 'primary'
-          }
-        ],
-        fields: [
-          {
-            title: '🔗 Connect Your Tools',
-            value: 'Type: `@SmartBot connect tools`',
-            short: true
-          },
-          {
-            title: '🔍 Search Example',
-            value: 'Type: `@SmartBot search for quarterly reports`',
-            short: true
-          }
-        ]
-      }, {
-        color: 'warning',
-        title: '💡 Pro Tips',
-        text: 'To get the best results:',
-        fields: [
-          {
-            title: '✅ Good Queries',
-            value: '• "search for budget documents"\n• "find emails about project X"\n• "show trending files this week"',
-            short: false
-          },
-          {
-            title: '❌ I Can\'t Help With',
-            value: '• Personal questions\n• Weather or news\n• General conversation\n• Non-work related queries',
-            short: false
-          }
-        ],
-        footer: `User: ${userContext?.slackEmail || 'Unknown'} | Query: "${query.substring(0, 50)}${query.length > 50 ? '...' : ''}"`
-      }]
-    };
-  }
-
   matchByKeywords(query) {
     const queryLower = query.toLowerCase();
     const words = queryLower.split(/\s+/);
@@ -485,70 +372,6 @@ class QueryHandler {
       console.error('❌ Error handling Slack command:', error.message);
       return {
         error: `Error processing Slack command: ${error.message}`
-      };
-    }
-  }
-
-  // Handle tool status command
-  async handleToolStatusCommand(slackUserId, userContext) {
-    try {
-      console.log('🔧 Processing tool status command for user:', slackUserId);
-
-      const pipedreamService = require('../services/pipedreamService');
-      const realStatus = await pipedreamService.getUserStatus(slackUserId);
-
-      let statusMessage = `🔧 *Tool Connection Status*\n\n`;
-
-      if (realStatus.connected && realStatus.account_ids.length > 0) {
-        statusMessage += `✅ *${realStatus.total_accounts} Tools Connected*\n\n`;
-
-        // Show each connected tool
-        realStatus.pipedream_accounts.forEach((account, index) => {
-          const statusIcon = account.connected ? '✅' : '❌';
-          statusMessage += `${statusIcon} **${account.app || account.name}**\n`;
-          statusMessage += `   • Account ID: \`${account.account_id || account.id}\`\n`;
-          statusMessage += `   • Status: ${account.connected ? 'Connected' : 'Disconnected'}\n\n`;
-        });
-
-        statusMessage += `\n🎯 *Real Account IDs in API Calls:*\n`;
-        statusMessage += `\`\`\`json\n`;
-        statusMessage += `"account_ids": [\n`;
-        realStatus.account_ids.forEach((id, index) => {
-          statusMessage += `  "${id}"${index < realStatus.account_ids.length - 1 ? ',' : ''}\n`;
-        });
-        statusMessage += `]\n\`\`\`\n`;
-        statusMessage += `\n📊 Search queries will use these ${realStatus.total_accounts} connected tools only.`;
-      } else {
-        statusMessage += `⚠️ *No Real Connections Found*\n\n`;
-        statusMessage += `Currently using static fallback account IDs:\n`;
-        statusMessage += `• \`apn_XehedEz\`\n• \`apn_Xehed1w\`\n• \`apn_yghjwOb\`\n• \`apn_7rhaEpm\`\n• \`apn_x7hrxmn\`\n• \`apn_arhpXvr\`\n\n`;
-        statusMessage += `💡 Connect tools via Pipedream to get personalized account IDs.\n\n`;
-        statusMessage += `🔗 Use "connect tools" command to start connecting your tools.`;
-      }
-
-      return {
-        response_type: 'ephemeral',
-        text: statusMessage,
-        attachments: [{
-          color: realStatus.connected ? 'good' : 'warning',
-          title: realStatus.connected ? '✅ Dynamic Account IDs Active' : '⚠️ Using Static Fallback',
-          text: realStatus.connected ?
-            `Your search queries use real account IDs from ${realStatus.total_accounts} connected tools.` :
-            'Connect tools via Pipedream to enable personalized search with real account IDs.',
-          footer: `User: ${slackUserId} | Email: ${userContext.slackEmail || 'Not extracted'}`
-        }]
-      };
-    } catch (error) {
-      console.error('❌ Error processing tool status command:', error);
-      return {
-        response_type: 'ephemeral',
-        text: '❌ Error retrieving tool status. Please try again.',
-        attachments: [{
-          color: 'danger',
-          title: 'Error',
-          text: `Failed to retrieve tool connection status: ${error.message}`,
-          footer: 'Please try again or contact support'
-        }]
       };
     }
   }
