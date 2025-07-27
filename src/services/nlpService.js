@@ -1,29 +1,34 @@
-// Enhanced AI-Powered Natural Language Processing Service with OpenAI Only
+// Enhanced AI-Powered Natural Language Processing Service - Unified Intent Engine
+
 const OpenAI = require('openai');
 
 class NlpService {
   constructor() {
     this.openaiClient = null;
     this.activeProvider = null;
-    
     this.initializeOpenAI();
-
-    this.conversationContext = {
-      lastQuery: null,
-      lastAPI: null,
-      lastIntent: null,
-      intentHistory: [],
-      userPreferences: {},
-      sessionStartTime: Date.now()
+    
+    // Intent to action mapping
+    this.intentActionMap = {
+      connect: 'createConnectToken',
+      disconnect: 'removeUserConnection', 
+      status: 'getStatus',
+      search: 'callSearchApi',
+      recent_searches: 'getRecentSearches',
+      suggested_documents: 'getSuggestedDocuments',
+      trending_documents: 'getTrendingDocuments',
+      dynamic_suggestions: 'getDynamicSuggestions',
+      connect_tools: 'handleConnectToolsCommand',   // <-- new
+      connect_multiple: 'createMultipleConnectTokens', // <-- new
+      general: 'generalResponse'
     };
 
-    this.intentCategories = {
-      search: { api: 'search', confidenceThreshold: 0.8 },
-      'recent-searches': { api: 'recent-searches', confidenceThreshold: 0.85 },
-      'suggested-documents': { api: 'suggested-documents', confidenceThreshold: 0.8 },
-      'trending-documents': { api: 'trending-documents', confidenceThreshold: 0.8 },
-      'dynamic-suggestions': { api: 'dynamic-suggestions', confidenceThreshold: 0.9 },
-    };
+    // Domain mappings for tools
+    this.toolDomains = [
+      'gmail', 'google_drive', 'slack', 'pipedream', 'dropbox', 'jira', 
+      'confluence', 'microsoft_teams', 'microsoft_sharepoint', 'document_360',
+      'github', 'notion', 'airtable', 'zendesk'
+    ];
   }
 
   initializeOpenAI() {
@@ -33,7 +38,7 @@ class NlpService {
           apiKey: process.env.OPENAI_API_KEY
         });
         this.activeProvider = 'openai';
-        console.log('🤖 OpenAI initialized successfully with powerful model');
+        console.log('🤖 OpenAI initialized successfully for intent engine');
       } catch (e) {
         console.error('❌ OpenAI initialization failed:', e.message);
         this.openaiClient = null;
@@ -45,77 +50,106 @@ class NlpService {
   }
 
   getSystemInstruction() {
-    return `You are an AI Assistant. Your primary role is to help users find information across various enterprise platforms including Google Drive, Slack, Dropbox, JIRA, Zendesk, and Document360.
+    const toolList = this.toolDomains.join(', ');
+    
+    return `You are a powerful Intent Engine for enterprise search and tool connection management.
 
-CORE RESPONSIBILITIES:
-1. Analyze user queries to determine if they relate to enterprise search functionality
-2. For enterprise search queries, classify the intent and extract parameters
-3. For non-enterprise queries, provide helpful, contextual responses that guide users back to enterprise search capabilities
+CORE FUNCTION: Analyze user queries and return structured JSON with intent, domain, parameters, and action.
 
-AVAILABLE ENTERPRISE SEARCH INTENTS:
-- search: Find documents across platforms
-- recent-searches: View search history  
-- suggested-documents: Get recommended content
-- trending-documents: See popular documents
-- dynamic-suggestions: Get autocomplete suggestions
+AVAILABLE INTENTS:
+- connect: User wants to connect a tool (e.g., "connect to gmail", "connect google drive")
+- connect_tools: user wants to see a list / UI card of all available tools (Example → "connect tools")
+- connect_multiple: user asked to connect several tools at once (Example → "connect to drive and jira")
+- disconnect: User wants to disconnect a tool (e.g., "disconnect jira", "remove slack connection")
+- status: User wants connection status (e.g., "show my connections", "pipedream status")
+- search: User wants to search documents (e.g., "find project reports", "search for contracts")
+- recent_searches: User wants search history (e.g., "show recent searches", "my search history")
+- suggested_documents: User wants recommendations (e.g., "suggest documents", "recommended files")
+- trending_documents: User wants popular content (e.g., "trending documents", "what's popular")
+- dynamic_suggestions: User wants autocomplete (e.g., "suggest completions for 'project'")
+- general: Casual conversation, greetings, or unrelated queries
 
-RESPONSE GUIDELINES:
-- For enterprise search queries: Respond with structured JSON containing intent, confidence, parameters, and reasoning
-- For greetings/casual conversation: Be friendly and mention your enterprise search capabilities
-- For unrelated queries: Politely redirect to enterprise search while being helpful
-- Always maintain a professional, helpful tone
-- Use context from previous interactions when relevant
+AVAILABLE DOMAINS (TOOLS):
+${toolList}
 
-CRITICAL JSON FORMATTING RULES:
-- NEVER use markdown code fences (\`\`\`)
-- NEVER wrap JSON in code blocks
-- Always respond with pure, clean JSON only
-- No explanatory text before or after the JSON
-- Ensure JSON is properly formatted and parseable
+RESPONSE FORMAT - Always return clean JSON (no markdown, no code fences):
+{
+  "intent": "one of the intents above",
+  "domain": "tool name or null",
+  "parameters": {"key": "value"},
+  "action": "method name to call",
+  "confidence": 0.0-1.0,
+  "reasoning": "brief explanation"
+}
 
-CONTEXT AWARENESS:
-- Remember previous queries in the conversation
-- Adapt responses based on user patterns
-- Provide suggestions based on conversation history`;
+ACTION MAPPING:
+- connect → createConnectToken
+- disconnect → removeUserConnection
+- status → getStatus
+- search → callSearchApi
+- recent_searches → getRecentSearches
+- suggested_documents → getSuggestedDocuments
+- trending_documents → getTrendingDocuments
+- dynamic_suggestions → getDynamicSuggestions
+- general → generalResponse
+
+PARAMETER EXTRACTION RULES:
+- For search: extract "query", "apps" (array), "limit" (number)
+- For connect/disconnect: extract "tool" (domain name)
+- For suggestions: extract "partial_query", "limit"
+- For general: extract "message" (your response)
+
+EXAMPLES:
+"connect to gmail" → {"intent": "connect", "domain": "gmail", "parameters": {"tool": "gmail"}, "action": "createConnectToken", "confidence": 0.95}
+"search for project reports" → {"intent": "search", "domain": null, "parameters": {"query": "project reports", "apps": ["google_drive", "slack", "dropbox"]}, "action": "callSearchApi", "confidence": 0.9}
+"hello" → {"intent": "general", "domain": null, "parameters": {"message": "Hello! I can help you connect tools and search documents. What would you like to do?"}, "action": "generalResponse", "confidence": 1.0}
+"connect tools" → {
+  "intent": "connect_tools",
+  "domain": null,
+  "parameters": {},
+  "action": "handleConnectToolsCommand",
+  "confidence": 0.95
+}
+
+"connect to drive and jira" → {
+  "intent": "connect_multiple",
+  "domain": null,
+  "parameters": { "tools": ["google_drive", "jira"] },
+  "action": "createMultipleConnectTokens",
+  "confidence": 0.9
+}
+
+CRITICAL: Return ONLY the JSON object. No explanatory text, no code fences, no markdown formatting.`;
   }
 
-  // Get the most powerful OpenAI model available
   getPowerfulModel() {
-    // Order by preference: most powerful first
     const powerfulModels = [
-      'gpt-4o',           // Most powerful multimodal
-      'gpt-4-turbo',      // Latest GPT-4 variant
-      'gpt-4',            // Standard GPT-4
-      'gpt-3.5-turbo'     // Fallback
+      'gpt-4o',
+      'gpt-4-turbo', 
+      'gpt-4',
+      'gpt-3.5-turbo'
     ];
-    
-    // Return environment variable if set, otherwise use most powerful
     return process.env.AI_MODEL_OPENAI || powerfulModels[0];
   }
 
-  // Clean JSON response from potential markdown wrapping
   cleanJsonResponse(text) {
     if (!text) return text;
-    
-    // Remove various markdown code fence patterns
     return text
+      .replace(/```/g,'')
       .replace(/```json/g, '')
-       .replace(/``````/g, '')    // Removed invalid/unterminated regex
-      .replace(/`{3,}/g, '')        // Remove multiple backticks
+      .replace(/`{3,}/g, '')
       .trim();
   }
 
   async parseQuery(query) {
-    console.log('\n🧠 ===== INTENT ENGINE NLP SERVICE PROCESSING (OPENAI ONLY) =====');
+    console.log('\n🧠 ===== UNIFIED INTENT ENGINE PROCESSING =====');
     console.log('📝 Input Query:', `"${query}"`);
     console.log('🤖 Active Provider:', this.activeProvider || 'None');
     console.log('🔥 Model:', this.getPowerfulModel());
-    console.log('⏰ NLP Start Time:', new Date().toISOString());
 
-    // Check if OpenAI is available
     if (!this.openaiClient) {
       console.error('❌ OpenAI client not initialized.');
-      return this.buildMessageResponse('AI service unavailable. Please try again later.');
+      return this.buildFallbackResponse(query);
     }
 
     try {
@@ -123,12 +157,12 @@ CONTEXT AWARENESS:
       return response;
     } catch (error) {
       console.error('❌ OpenAI processing failed:', error);
-      return this.buildMessageResponse('AI service error. Please try again later.');
+      return this.buildFallbackResponse(query);
     }
   }
 
   async processWithOpenAI(query) {
-    const contextualPrompt = this.createContextualPrompt(query);
+    const prompt = this.createUnifiedPrompt(query);
     
     const completion = await this.openaiClient.chat.completions.create({
       model: this.getPowerfulModel(),
@@ -138,12 +172,12 @@ CONTEXT AWARENESS:
           content: this.getSystemInstruction()
         },
         {
-          role: 'user',
-          content: contextualPrompt
+          role: 'user', 
+          content: prompt
         }
       ],
-      temperature: 0.7,
-      max_tokens: 1000,
+      temperature: 0.3,
+      max_tokens: 800,
       top_p: 1,
       frequency_penalty: 0,
       presence_penalty: 0
@@ -164,232 +198,143 @@ CONTEXT AWARENESS:
       parsed = JSON.parse(text);
     } catch (err) {
       console.error('❌ Failed to parse AI JSON:', text);
-      return this.buildMessageResponse(
-        "Hello! I'm your AI Assistant. I can help you find documents, view your search history, get recommendations, and more. What would you like to search for?"
-      );
+      return this.buildFallbackResponse(query);
     }
 
-    // Handle enterprise search intents
-    if (parsed.intent && this.intentCategories[parsed.intent]) {
-      const intentInfo = this.intentCategories[parsed.intent];
-      if (parsed.confidence >= intentInfo.confidenceThreshold) {
-        const parameters = parsed.parameters || {};
-        this.updateContext(query, intentInfo.api, parsed.intent);
-        return {
-          api: intentInfo.api,
-          parameters,
-          confidence: parsed.confidence,
-          intent: parsed.intent,
-          reasoning: parsed.reasoning || 'Intent detected successfully',
-          type: 'actionable',
-          provider: this.activeProvider,
-          model: this.getPowerfulModel()
-        };
-      } else {
-        return this.buildMessageResponse(
-          `I think you might be asking about ${parsed.intent}, but I'm not completely sure. Could you please rephrase your request? For example, you can ask me to 'search for project reports' or 'show my recent searches'.`
-        );
-      }
+    // Validate required fields
+    if (!parsed.intent || !parsed.action) {
+      console.error('❌ Missing required fields in AI response');
+      return this.buildFallbackResponse(query);
     }
 
-    // Handle general conversation or unknown intents
-    if (parsed.message) {
-      return this.buildMessageResponse(parsed.message);
+    // Ensure action matches intent
+    const expectedAction = this.intentActionMap[parsed.intent];
+    if (expectedAction && parsed.action !== expectedAction) {
+      console.warn('⚠️ Correcting action mapping');
+      parsed.action = expectedAction;
     }
 
-    // Final fallback
-    return this.buildMessageResponse(
-      "Hello! I'm your AI Assistant. I can help you find documents across Google Drive, Slack, Dropbox, JIRA, Zendesk, and Document360. How can I assist you today?"
-    );
-  }
+    // Validate confidence
+    if (!parsed.confidence || parsed.confidence < 0 || parsed.confidence > 1) {
+      parsed.confidence = 0.7; // Default confidence
+    }
 
-  buildMessageResponse(messageText) {
+    console.log('✅ Intent Engine Result:', {
+      intent: parsed.intent,
+      domain: parsed.domain,
+      action: parsed.action,
+      confidence: parsed.confidence
+    });
+
     return {
-      api: '_none',
-      parameters: null,
-      confidence: 1.0,
-      intent: 'GENERAL_MESSAGE',
-      message: messageText,
-      type: 'message',
-      provider: this.activeProvider || 'fallback',
+      intent: parsed.intent,
+      domain: parsed.domain,
+      parameters: parsed.parameters || {},
+      action: parsed.action,
+      confidence: parsed.confidence,
+      reasoning: parsed.reasoning || 'Intent detected successfully',
+      type: 'actionable',
+      provider: this.activeProvider,
       model: this.getPowerfulModel()
     };
   }
 
-  createContextualPrompt(query) {
-    const intentNames = Object.keys(this.intentCategories).join(', ');
-    const conversationHistory = this.getConversationSummary();
-    
-    return `Analyze this user query in the context of our enterprise search system.
-
-CONVERSATION CONTEXT:
-${conversationHistory}
+  createUnifiedPrompt(query) {
+    return `Analyze this user query for the intent engine:
 
 USER QUERY: "${query}"
 
 INSTRUCTIONS:
-1. If this is an enterprise search query, respond with PURE JSON (no code fences, no markdown):
-{
-  "intent": "one of: ${intentNames}",
-  "confidence": 0.0-1.0,
-  "parameters": {"key": "value"},
-  "reasoning": "explanation"
-}
+1. Determine the primary intent (connect, disconnect, status, search, etc.)
+2. Extract the domain/tool if mentioned (gmail, google_drive, slack, etc.)
+3. Extract relevant parameters based on the intent
+4. Assign the correct action method name
+5. Provide confidence score (0.0-1.0)
 
-2. If this is NOT an enterprise search query (greetings, general questions, etc.), respond with PURE JSON (no code fences, no markdown):
-{
-  "message": "Your helpful, contextual response that acknowledges the query and guides toward enterprise search capabilities"
-}
-
-IMPORTANT: Return ONLY the JSON object. No explanatory text, no code fences, no markdown formatting. Just pure, clean JSON.`;
+Return ONLY the JSON object. No code fences, no markdown, no explanatory text.`;
   }
 
-  async generateContextualResponse(query) {
-    try {
-      const contextPrompt = `The user asked: "${query}"
-
-This doesn't seem to be related to enterprise search. Generate a helpful, contextual response that:
-1. Acknowledges their query appropriately
-2. Gently guides them toward enterprise search capabilities
-3. Is friendly and professional
-4. Takes into account our conversation context: ${this.getConversationSummary()}
-
-Respond with PURE JSON only (no code fences, no markdown): {"message": "your response"}`;
-
-      const completion = await this.openaiClient.chat.completions.create({
-        model: this.getPowerfulModel(),
-        messages: [{ role: 'user', content: contextPrompt }],
-        temperature: 0.7,
-        max_tokens: 200
-      });
-      
-      const rawText = completion.choices[0].message.content.trim();
-      const cleanedText = this.cleanJsonResponse(rawText);
-      
-      try {
-        const parsed = JSON.parse(cleanedText);
-        return this.buildMessageResponse(parsed.message || "Hello! I'm here to help you search and find information across your enterprise platforms.");
-      } catch (err) {
-        return this.buildMessageResponse(
-          "Hello! I'm here to help you search and find information across your enterprise platforms. How can I assist you with finding documents, checking search history, or getting recommendations?"
-        );
-      }
-    } catch (error) {
-      return this.buildMessageResponse(
-        "Hello! I'm your AI Assistant. I can help you find documents, view your search history, get recommendations, and more. What would you like to search for?"
-      );
+  buildFallbackResponse(query) {
+    // Simple keyword-based fallback for critical intents
+    const queryLower = query.toLowerCase();
+    
+    if (queryLower.includes('connect')) {
+      const tool = this.extractToolFromQuery(queryLower);
+      return {
+        intent: 'connect',
+        domain: tool,
+        parameters: { tool: tool },
+        action: 'createConnectToken',
+        confidence: 0.6,
+        reasoning: 'Fallback pattern matching',
+        type: 'actionable',
+        provider: 'fallback'
+      };
     }
-  }
 
-  async generateClarificationResponse(query, parsedResult) {
-    try {
-      const clarificationPrompt = `The user asked: "${query}"
-I detected intent "${parsedResult.intent}" but with low confidence (${parsedResult.confidence}).
-
-Generate a helpful clarification response that:
-1. Acknowledges what I think they might want
-2. Asks for clarification
-3. Provides examples of how to phrase their request better
-4. Maintains a helpful tone
-
-Respond with PURE JSON only (no code fences, no markdown): {"message": "your clarification request"}`;
-
-      const completion = await this.openaiClient.chat.completions.create({
-        model: this.getPowerfulModel(),
-        messages: [{ role: 'user', content: clarificationPrompt }],
-        temperature: 0.7,
-        max_tokens: 200
-      });
-      
-      const rawText = completion.choices[0].message.content.trim();
-      const cleanedText = this.cleanJsonResponse(rawText);
-      
-      try {
-        const parsed = JSON.parse(cleanedText);
-        return this.buildMessageResponse(parsed.message || "I'm not quite sure what you're looking for. Could you please rephrase your request?");
-      } catch (err) {
-        return this.buildMessageResponse(
-          "I'm not quite sure what you're looking for. Could you please rephrase your request? For example, you can ask me to 'search for project reports' or 'show my recent searches'."
-        );
-      }
-    } catch (error) {
-      return this.buildMessageResponse(
-        "Could you please clarify what you're looking for? I can help you search documents, view history, get suggestions, or find trending content."
-      );
+    if (queryLower.includes('search') || queryLower.includes('find')) {
+      const searchQuery = this.extractSearchQuery(query);
+      return {
+        intent: 'search',
+        domain: null,
+        parameters: { 
+          query: searchQuery,
+          apps: ['google_drive', 'slack', 'dropbox', 'jira', 'zendesk', 'document360']
+        },
+        action: 'callSearchApi',
+        confidence: 0.6,
+        reasoning: 'Fallback pattern matching',
+        type: 'actionable',
+        provider: 'fallback'
+      };
     }
-  }
 
-  getConversationSummary() {
-    const recentHistory = this.conversationContext.intentHistory.slice(-3);
-    if (recentHistory.length === 0) {
-      return "This is the start of our conversation.";
-    }
-    
-    const summary = recentHistory.map(item => 
-      `User asked: "${item.query.substring(0, 50)}..." (Intent: ${item.intent})`
-    ).join('\n');
-    
-    return `Recent conversation:\n${summary}`;
-  }
-
-  updateContext(query, api, intent) {
-    this.conversationContext.lastQuery = query;
-    this.conversationContext.lastAPI = api;
-    this.conversationContext.lastIntent = intent;
-    this.conversationContext.intentHistory.push({ 
-      query, 
-      intent, 
-      timestamp: Date.now() 
-    });
-    
-    if (this.conversationContext.intentHistory.length > 10) {
-      this.conversationContext.intentHistory = this.conversationContext.intentHistory.slice(-10);
-    }
-    
-    this.conversationContext.userPreferences[intent] = 
-      (this.conversationContext.userPreferences[intent] || 0) + 1;
-    
-    console.log('💾 Context updated:', { 
-      query: query.substring(0, 30), 
-      api, 
-      intent,
-      provider: this.activeProvider,
-      model: this.getPowerfulModel()
-    });
-  }
-
-  getAnalytics() {
+    // General response fallback
     return {
-      totalInteractions: this.conversationContext.intentHistory.length,
-      sessionDuration: Date.now() - this.conversationContext.sessionStartTime,
-      topIntents: Object.entries(this.conversationContext.userPreferences)
-        .sort(([,a], [,b]) => b - a)
-        .slice(0, 3),
-      lastActivity: this.conversationContext.intentHistory.slice(-1)[0] || null,
-      activeProvider: this.activeProvider,
-      model: this.getPowerfulModel()
+      intent: 'general',
+      domain: null,
+      parameters: { 
+        message: "Hello! I'm your AI Assistant. I can help you connect tools like Gmail, Google Drive, Slack, and search documents across your platforms. What would you like to do?"
+      },
+      action: 'generalResponse',
+      confidence: 1.0,
+      reasoning: 'Fallback general response',
+      type: 'message',
+      provider: 'fallback'
     };
   }
 
-  resetContext() {
-    this.conversationContext = {
-      lastQuery: null,
-      lastAPI: null,
-      lastIntent: null,
-      intentHistory: [],
-      userPreferences: {},
-      sessionStartTime: Date.now()
-    };
-    console.log('🔄 Conversation context reset');
+  extractToolFromQuery(queryLower) {
+    for (const tool of this.toolDomains) {
+      if (queryLower.includes(tool.replace('_', ' ')) || queryLower.includes(tool)) {
+        return tool;
+      }
+    }
+    return null;
   }
 
-  // Method to get current provider status
+  extractSearchQuery(query) {
+    const searchPatterns = [
+      /(?:search|find|look)\s+(?:for\s+)?(.+)/i,
+      /(.+)/ // fallback to entire query
+    ];
+
+    for (const pattern of searchPatterns) {
+      const match = query.match(pattern);
+      if (match && match[1]) {
+        return match[1].trim();
+      }
+    }
+    return query.trim();
+  }
+
+  // Get current provider status
   getProviderStatus() {
     return {
       openaiAvailable: !!this.openaiClient,
       activeProvider: this.activeProvider,
       model: this.getPowerfulModel(),
-      powerfulModelEnabled: true
+      intentEngine: true
     };
   }
 }
