@@ -1,4 +1,5 @@
-const { API_ENDPOINTS, QUERY_PATTERNS } = require('../config/apis');
+// Simplified Query Handler - Unified Intent Engine Approach
+
 const apiService = require('../services/apiService');
 const nlpService = require('../services/nlpService');
 const pipedreamHandler = require('./pipedreamHandler');
@@ -6,374 +7,290 @@ const slackHandler = require('./slackHandler');
 const connectToolsHandler = require('./connectToolsHandler');
 
 class QueryHandler {
+  formatLegacyApiResponse(apiResponse, apiType, parameters, duration, nlpResult) {
+  // Handle API errors
+  if (apiResponse.error) {
+    console.log('❌ API call failed');
+    console.log('💥 API Error:', apiResponse.error);
+    console.log('⏱️ API Call Duration:', duration, 'ms');
+    return {
+      error: apiResponse.error
+    };
+  }
+
+  console.log('✅ API call completed');
+  console.log('⏱️ API Call Duration:', duration, 'ms');
+  console.log('📊 API Response Status:', apiResponse.status || 'Success');
+
+  // Log response summary based on API type
+  if (apiResponse.data) {
+    if (apiResponse.data.results) {
+      console.log('📄 Results Found:', apiResponse.data.results.length);
+    } else if (apiResponse.data.data) {
+      console.log('📄 Data Items:', Array.isArray(apiResponse.data.data) ? apiResponse.data.data.length : 'Object');
+    } else if (apiResponse.data.trending_documents) {
+      console.log('📄 Trending Documents:', apiResponse.data.trending_documents.length);
+    } else if (apiResponse.data.suggested_documents) {
+      console.log('📄 Suggested Documents:', apiResponse.data.suggested_documents.length);
+    }
+  }
+
+  // Step 4: Prepare final response in legacy format
+  console.log('\n🎉 Preparing final response in legacy format...');
+  const finalResponse = {
+    data: apiResponse.data,
+    apiUsed: apiType,
+    parameters: parameters,
+    confidence: nlpResult.confidence,
+    method: nlpResult.provider === 'openai' ? 'ai_powered' : 'pattern_matching',
+    aiProvider: nlpResult.provider || 'OpenAI NLP',
+    reasoning: nlpResult.reasoning
+  };
+
+  console.log('✅ QUERY PROCESSING COMPLETE');
+  console.log('🏁 Final Response Ready for Slack formatting');
+  
+  return finalResponse;
+}
+
   async processQuery(query, userContext = null) {
     try {
-      console.log('\n🚀 ===== STARTING QUERY PROCESSING =====');
-      console.log('📝 Original Query from Slack:', `"${query}"`);
-      console.log('👤 User Context:', userContext);
+      console.log('\n🚀 ===== UNIFIED INTENT ENGINE QUERY PROCESSING =====');
+      console.log('📝 Original Query:', `"${query}"`);
+      console.log('👤 User Context:', userContext ? 'Available' : 'None');
       console.log('⏰ Timestamp:', new Date().toISOString());
-      console.log('🔍 Query Length:', query.length, 'characters');
 
-      // Extract slackUserId from userContext for backward compatibility
+      // Extract slackUserId for backward compatibility
       const slackUserId = userContext?.slackUserId || userContext;
 
-      // Check if this is a unified connect tools command (highest priority)
-      const connectToolsCommand = connectToolsHandler.parseConnectToolsCommand(query);
-      if (connectToolsCommand) {
-        console.log('🛠️ Connect tools command detected:', connectToolsCommand.command);
-        return await connectToolsHandler.handleCommand(connectToolsCommand, slackUserId, userContext);
-      }
-
-      // Check if this is a Pipedream-related command
-      const pipedreamCommand = pipedreamHandler.parsePipedreamCommand(query);
-      if (pipedreamCommand) {
-        console.log('🔗 Pipedream command detected:', pipedreamCommand.command);
-        return await this.handlePipedreamCommand(pipedreamCommand, slackUserId);
-      }
-
-      // Check if this is a Slack-related command
-      const slackCommand = this.parseSlackCommand(query);
-      if (slackCommand) {
-        console.log('💬 Slack command detected:', slackCommand.command);
-        return await this.handleSlackCommand(slackCommand, slackUserId);
-      }
-
-      // Step 1: Parse the natural language query with enhanced NLP
-      console.log('\n📊 STEP 1: Starting Query Parsing...');
-      const parsedQuery = await this.parseQuery(query);
+      // Step 1: Parse query through unified NLP service
+      console.log('\n🧠 STEP 1: Processing through Intent Engine...');
+      const nlpResult = await nlpService.parseQuery(query);
       
-      if (!parsedQuery) {
-        console.log('❌ STEP 1 FAILED: Could not parse query');
+      if (!nlpResult || !nlpResult.action) {
+        console.log('❌ STEP 1 FAILED: Intent Engine could not process query');
         return {
-          error: "I couldn't understand your query. Please try rephrasing it or use one of these examples:\n• get user data for user ID 123\n• show me the latest orders\n• what's the status of order 456"
+          error: "I couldn't understand your request. Please try rephrasing it or ask me to 'connect gmail', 'search for documents', or 'show my connections'."
         };
       }
 
-      console.log('✅ STEP 1 SUCCESS: Query parsed successfully');
-      console.log('🎯 Selected API:', parsedQuery.api);
-      console.log('📋 Extracted Parameters:', JSON.stringify(parsedQuery.parameters, null, 2));
-      console.log('📈 Confidence Score:', parsedQuery.confidence);
-      console.log('🔧 Method Used:', parsedQuery.method || parsedQuery.intent);
-      console.log('🤖 AI Provider:', parsedQuery.aiProvider || 'OpenAI');
-      if (parsedQuery.reasoning) {
-        console.log('💭 AI Reasoning:', parsedQuery.reasoning);
-      }
+      console.log('✅ STEP 1 SUCCESS: Intent Engine processed query');
+      console.log('🎯 Intent:', nlpResult.intent);
+      console.log('🏷️ Domain:', nlpResult.domain || 'None');
+      console.log('⚡ Action:', nlpResult.action);
+      console.log('📊 Confidence:', nlpResult.confidence);
+      console.log('📋 Parameters:', JSON.stringify(nlpResult.parameters, null, 2));
 
-      // STEP 1.5: Check if this is a conversational message response (NEW)
-      if (parsedQuery.api === '_none' || parsedQuery.type === 'message') {
-        console.log('💬 CONVERSATIONAL RESPONSE: Skipping API validation');
-        console.log('📝 Message:', parsedQuery.message);
-        
+      // Step 2: Handle general conversation
+      if (nlpResult.intent === 'general') {
+        console.log('💬 STEP 2: Handling general conversation');
         return {
-          message: parsedQuery.message,
+          message: nlpResult.parameters.message,
           type: 'conversational',
-          confidence: parsedQuery.confidence,
-          intent: parsedQuery.intent,
-          aiProvider: 'OpenAI NLP',
-          method: 'conversational_ai',
-          apiUsed: 'conversational', 
-          parameters: {}        
+          confidence: nlpResult.confidence,
+          intent: nlpResult.intent,
+          provider: nlpResult.provider
         };
       }
 
-      // Step 2: Validate the API endpoint exists (only for actual API calls)
-      console.log('\n🔍 STEP 2: Validating API endpoint...');
-      const apiConfig = API_ENDPOINTS[parsedQuery.api];
-      if (!apiConfig) {
-        console.log('❌ STEP 2 FAILED: API endpoint not found:', parsedQuery.api);
-        return {
-          error: `API endpoint '${parsedQuery.api}' not found`
-        };
-      }
-      console.log('✅ STEP 2 SUCCESS: API endpoint validated');
+      // Step 3: Dispatch to appropriate handler based on action
+      console.log('\n⚡ STEP 2: Dispatching to action handler...');
+      console.log('🎯 Action to execute:', nlpResult.action);
 
-      // Step 3: Call the Enterprise Search API
-      console.log('\n🌐 STEP 3: Calling Enterprise Search API...');
-      console.log('📡 API Endpoint:', parsedQuery.api);
-      console.log('📤 Request Parameters:', JSON.stringify(parsedQuery.parameters, null, 2));
-
-      const apiStartTime = Date.now();
-      const apiResponse = await apiService.callAPI(
-        parsedQuery.api,
-        parsedQuery.parameters,
-        slackUserId
-      );
-      const apiDuration = Date.now() - apiStartTime;
-
-      if (apiResponse.error) {
-        console.log('❌ STEP 3 FAILED: API call failed');
-        console.log('💥 API Error:', apiResponse.error);
-        console.log('⏱️ API Call Duration:', apiDuration, 'ms');
-        return {
-          error: apiResponse.error
-        };
-      }
-
-      console.log('✅ STEP 3 SUCCESS: API call completed');
-      console.log('⏱️ API Call Duration:', apiDuration, 'ms');
-      console.log('📊 API Response Status:', apiResponse.status || 'Success');
-
-      // Log response summary
-      if (apiResponse.data) {
-        if (apiResponse.data.results) {
-          console.log('📄 Results Found:', apiResponse.data.results.length);
-        } else if (apiResponse.data.data) {
-          console.log('📄 Data Items:', Array.isArray(apiResponse.data.data) ? apiResponse.data.data.length : 'Object');
-        } else if (apiResponse.data.trending_documents) {
-          console.log('📄 Trending Documents:', apiResponse.data.trending_documents.length);
-        } else if (apiResponse.data.suggested_documents) {
-          console.log('📄 Suggested Documents:', apiResponse.data.suggested_documents.length);
+      switch (nlpResult.action) {
+       case 'createConnectToken':
+        if (!nlpResult.domain) {
+          // Nothing recognised – fall back to the UI card
+          return await connectToolsHandler.handleConnectToolsCommand(
+            slackUserId,
+            userContext?.slackEmail
+          );
         }
+        return await connectToolsHandler.handleDirectToolConnection(
+          slackUserId,
+          nlpResult.domain,
+          userContext?.slackEmail
+        );
+
+
+        case 'removeUserConnection':
+          console.log('🗑️ Executing: Remove User Connection');
+          return await connectToolsHandler.handleDisconnectTool(
+            slackUserId,
+            nlpResult.domain,
+            userContext?.slackEmail
+          );
+
+        case 'getStatus':
+          console.log('📊 Executing: Get Status');
+          return await this.handleStatusRequest(nlpResult, slackUserId, userContext);
+
+          case 'handleConnectToolsCommand':          // “connect tools”
+            console.log('🔗 Showing list of connectable tools');
+            return await connectToolsHandler.handleConnectToolsCommand(
+            slackUserId,
+            userContext?.slackEmail
+        );
+
+        case 'createMultipleConnectTokens':        // “connect to drive and jira”
+          console.log('🔗 Connecting multiple tools:', nlpResult.parameters.tools);
+          return await this.handleMultipleToolConnect(
+            nlpResult.parameters.tools,
+            slackUserId,
+            userContext?.slackEmail
+          );
+
+        // In the switch statement for API-related actions, modify them to return the legacy format:
+
+        case 'callSearchApi':
+          console.log('🔍 Executing: Search API Call');
+          const searchStartTime = Date.now();
+          const searchResponse = await apiService.callAPI(
+            'search',
+            nlpResult.parameters,
+            slackUserId,
+            userContext?.slackEmail
+          );
+          const searchDuration = Date.now() - searchStartTime;
+          
+          return this.formatLegacyApiResponse(searchResponse, 'search', nlpResult.parameters, searchDuration, nlpResult);
+
+        case 'getRecentSearches':
+          console.log('📋 Executing: Get Recent Searches');
+          const recentStartTime = Date.now();
+          const recentResponse = await apiService.callAPI(
+            'recent-searches',
+            nlpResult.parameters,
+            slackUserId,
+            userContext?.slackEmail
+          );
+          const recentDuration = Date.now() - recentStartTime;
+          
+          return this.formatLegacyApiResponse(recentResponse, 'recent-searches', nlpResult.parameters, recentDuration, nlpResult);
+
+        case 'getSuggestedDocuments':
+          console.log('💡 Executing: Get Suggested Documents');
+          const suggestedStartTime = Date.now();
+          const suggestedResponse = await apiService.callAPI(
+            'suggested-documents',
+            nlpResult.parameters,
+            slackUserId,
+            userContext?.slackEmail
+          );
+          const suggestedDuration = Date.now() - suggestedStartTime;
+          
+          return this.formatLegacyApiResponse(suggestedResponse, 'suggested-documents', nlpResult.parameters, suggestedDuration, nlpResult);
+
+        case 'getTrendingDocuments':
+          console.log('📈 Executing: Get Trending Documents');
+          const trendingStartTime = Date.now();
+          const trendingResponse = await apiService.callAPI(
+            'trending-documents',
+            nlpResult.parameters,
+            slackUserId,
+            userContext?.slackEmail
+          );
+          const trendingDuration = Date.now() - trendingStartTime;
+          
+          return this.formatLegacyApiResponse(trendingResponse, 'trending-documents', nlpResult.parameters, trendingDuration, nlpResult);
+
+        case 'getDynamicSuggestions':
+          console.log('🔮 Executing: Get Dynamic Suggestions');
+          const dynamicStartTime = Date.now();
+          const dynamicResponse = await apiService.callAPI(
+            'dynamic-suggestions',
+            nlpResult.parameters,
+            slackUserId,
+            userContext?.slackEmail
+          );
+          const dynamicDuration = Date.now() - dynamicStartTime;
+          
+          return this.formatLegacyApiResponse(dynamicResponse, 'dynamic-suggestions', nlpResult.parameters, dynamicDuration, nlpResult);
+
+
+        default:
+          console.log('❌ Unknown action:', nlpResult.action);
+          return {
+            error: `Unsupported action: ${nlpResult.action}. Please try rephrasing your request.`
+          };
       }
-
-      // Step 4: Prepare final response
-      console.log('\n🎉 STEP 4: Preparing final response...');
-      const finalResponse = {
-        data: apiResponse.data,
-        apiUsed: parsedQuery.api,
-        parameters: parsedQuery.parameters,
-        confidence: parsedQuery.confidence,
-        method: parsedQuery.method,
-        aiProvider: parsedQuery.aiProvider,
-        reasoning: parsedQuery.reasoning
-      };
-
-      console.log('✅ QUERY PROCESSING COMPLETE');
-      console.log('🏁 Final Response Ready for Slack formatting');
-      console.log('===== END QUERY PROCESSING =====\n');
-
-      return finalResponse;
 
     } catch (error) {
-      console.error('Error in processQuery:', error);
+      console.error('❌ Error in unified query processing:', error);
       return {
         error: `Failed to process query: ${error.message}`
       };
     }
   }
-
-  // Rest of your methods remain unchanged...
-  async parseQuery(query) {
-    console.log('🔍 PARSING PHASE: Starting query analysis...');
-    console.log('📝 Query to parse:', `"${query}"`);
-
-    // Phase 1: Try predefined patterns first (fastest)
-    console.log('\n🎯 PHASE 1: Checking predefined patterns...');
-    for (const [index, pattern] of QUERY_PATTERNS.entries()) {
-      console.log(`   Trying pattern ${index + 1}:`, pattern.pattern);
-      const match = query.match(pattern.pattern);
-      if (match) {
-        console.log('✅ PHASE 1 SUCCESS: Pattern matched!');
-        console.log('🎯 Matched Pattern:', pattern.pattern);
-        console.log('📊 Match Groups:', match);
-        const result = {
-          api: pattern.api,
-          parameters: pattern.paramExtractor(match),
-          confidence: 0.9,
-          method: 'pattern_matching'
-        };
-        console.log('📋 Extracted Result:', JSON.stringify(result, null, 2));
-        return result;
-      }
-    }
-    console.log('❌ PHASE 1: No predefined patterns matched');
-
-    // Phase 2: Try keyword matching
-    console.log('\n🔍 PHASE 2: Trying keyword matching...');
-    const keywordMatch = this.matchByKeywords(query);
-    if (keywordMatch) {
-      console.log('✅ PHASE 2 SUCCESS: Keywords matched!');
-      console.log('📋 Keyword Match Result:', JSON.stringify(keywordMatch, null, 2));
-      return keywordMatch;
-    }
-    console.log('❌ PHASE 2: No keywords matched');
-
-    // Phase 3: Use enhanced NLP service (AI-powered)
-    console.log('\n🧠 PHASE 3: Using AI-powered NLP service...');
-    console.log('🤖 Delegating to NLP service for advanced processing');
-    const nlpResult = await nlpService.parseQuery(query);
-
-    if (nlpResult) {
-      console.log('✅ PHASE 3 SUCCESS: NLP service returned result');
-      console.log('📋 NLP Result:', JSON.stringify(nlpResult, null, 2));
-    } else {
-      console.log('❌ PHASE 3 FAILED: NLP service could not parse query');
-    }
-
-    return nlpResult;
+  async handleMultipleToolConnect(tools = [], slackUserId, slackEmail) {
+  if (!Array.isArray(tools) || tools.length === 0) {
+    return { error: 'No tools recognised to connect.' };
   }
 
-  // ... rest of your existing methods remain the same
-  matchByKeywords(query) {
-    const queryLower = query.toLowerCase();
-    const words = queryLower.split(/\s+/);
+  const results = [];
+  for (const tool of tools) {
+    try {
+      const res = await connectToolsHandler.handleDirectToolConnection(
+        slackUserId,
+        tool,
+        slackEmail
+      );
+      results.push({ tool, status: 'ok', res });
+    } catch (e) {
+      console.error(`❌ Failed to connect ${tool}:`, e);
+      results.push({ tool, status: 'error', message: e.message });
+    }
+  }
+  return { type: 'multiConnectResult', results };
+}
+
+  // Handle status requests with domain-specific logic
+  async handleStatusRequest(nlpResult, slackUserId, userContext) {
+    const domain = nlpResult.domain;
     
-    let bestMatch = null;
-    let maxScore = 0;
-
-    for (const [apiName, config] of Object.entries(API_ENDPOINTS)) {
-      let score = 0;
-      
-      // Check how many keywords match
-      for (const keyword of config.keywords) {
-        if (words.includes(keyword.toLowerCase())) {
-          score += 1;
-        }
+    try {
+      if (domain === 'pipedream') {
+        console.log('📊 Getting Pipedream status');
+        return await pipedreamHandler.handleStatusCommand(slackUserId);
+      } else if (domain === 'slack') {
+        console.log('📊 Getting Slack status');
+        return await slackHandler.handleStatusCommand(slackUserId);
+      } else {
+        console.log('📊 Getting general connection status');
+        return await connectToolsHandler.handleShowConnections(slackUserId);
       }
-      
-      // Boost score if API name is mentioned
-      if (words.includes(apiName.toLowerCase())) {
-        score += 2;
-      }
-
-      if (score > maxScore) {
-        maxScore = score;
-        bestMatch = {
-          api: apiName,
-          parameters: this.extractParameters(query, config.parameters),
-          confidence: Math.min(score / config.keywords.length, 1.0)
-        };
-      }
+    } catch (error) {
+      console.error('❌ Error handling status request:', error);
+      return {
+        error: `Error getting status: ${error.message}`
+      };
     }
-
-    return maxScore > 0 ? bestMatch : null;
   }
 
-  extractParameters(query, parameterNames) {
-    const parameters = {};
-
-    // Extract common parameter patterns
-    const patterns = {
-      id: /(?:id|ID)\s+(\w+)/,
-      userId: /user\s+(?:id|ID)?\s*(\w+)/,
-      orderId: /order\s+(?:id|ID)?\s*(\w+)/,
-      productId: /product\s+(?:id|ID)?\s*(\w+)/,
-      status: /status\s+(\w+)/,
-      email: /(\w+@\w+\.\w+)/,
-      limit: /(?:latest|last|recent)\s+(\d+)|(\d+)\s+(?:latest|last|recent)/,
-      // Enhanced search query extraction
-      query: /(?:search|find|look|searh|serach)\s+(?:for\s+)?(.+)/i
+  // Simplified method for getting service info
+  getServiceInfo() {
+    return {
+      version: '2.0.0',
+      approach: 'unified_intent_engine',
+      nlpProvider: nlpService.getProviderStatus(),
+      features: [
+        'Direct query to NLP service',
+        'Intent-based action mapping',
+        'Unified parameter extraction',
+        'Tool connection management',
+        'Enterprise search integration'
+      ],
+      supportedIntents: [
+        'connect', 'disconnect', 'status', 'search',
+        'recent_searches', 'suggested_documents', 
+        'trending_documents', 'dynamic_suggestions', 'general'
+      ],
+      supportedTools: [
+        'gmail', 'google_drive', 'slack', 'pipedream', 'dropbox',
+        'jira', 'confluence', 'microsoft_teams', 'microsoft_sharepoint',
+        'document_360', 'github', 'notion', 'airtable', 'zendesk'
+      ]
     };
-
-    for (const [paramName, pattern] of Object.entries(patterns)) {
-      if (parameterNames.includes(paramName)) {
-        const match = query.match(pattern);
-        if (match) {
-          parameters[paramName] = match[1] || match[2];
-        }
-      }
-    }
-
-    // Special handling for search queries
-    if (parameterNames.includes('query') && !parameters.query) {
-      // If no pattern matched, use the whole query as search term
-      const cleanQuery = query.trim();
-      if (cleanQuery.length > 0) {
-        parameters.query = cleanQuery;
-      }
-    }
-
-    // Set default limit for list queries
-    if (parameterNames.includes('limit') && !parameters.limit) {
-      if (query.toLowerCase().includes('latest') || query.toLowerCase().includes('recent')) {
-        parameters.limit = 10;
-      }
-    }
-
-    // Add default apps for search queries
-    if (parameterNames.includes('apps') && !parameters.apps) {
-      parameters.apps = ['google_drive', 'slack', 'dropbox', 'jira', 'zendesk', 'document360'];
-    }
-
-    return parameters;
-  }
-
-  // Handle Pipedream-specific commands
-  async handlePipedreamCommand(pipedreamCommand, slackUserId) {
-    try {
-      console.log('🔗 Processing Pipedream command:', pipedreamCommand.command);
-
-      switch (pipedreamCommand.command) {
-        case 'connect':
-          return await pipedreamHandler.handleConnectCommand(slackUserId);
-
-        case 'disconnect':
-          return await pipedreamHandler.handleDisconnectCommand(slackUserId);
-
-        case 'status':
-          return await pipedreamHandler.handleStatusCommand(slackUserId);
-
-        case 'tools':
-          return await pipedreamHandler.handleToolsCommand(slackUserId);
-
-        default:
-          return {
-            error: `Unknown Pipedream command: ${pipedreamCommand.command}`
-          };
-      }
-
-    } catch (error) {
-      console.error('❌ Error handling Pipedream command:', error.message);
-      return {
-        error: `Pipedream command error: ${error.message}`
-      };
-    }
-  }
-
-  // Parse Slack-specific commands
-  parseSlackCommand(query) {
-    const normalizedQuery = query.toLowerCase().trim();
-
-    // Slack connection commands
-    if (normalizedQuery.includes('connect slack') || normalizedQuery.includes('slack connect')) {
-      return { command: 'connect', type: 'slack' };
-    }
-
-    if (normalizedQuery.includes('slack status') || normalizedQuery.includes('status slack')) {
-      return { command: 'status', type: 'slack' };
-    }
-
-    if (normalizedQuery.includes('disconnect slack') || normalizedQuery.includes('slack disconnect')) {
-      return { command: 'disconnect', type: 'slack' };
-    }
-
-    if (normalizedQuery.includes('slack apps') || normalizedQuery.includes('manage slack')) {
-      return { command: 'manage', type: 'slack' };
-    }
-
-    return null;
-  }
-
-  // Handle Slack-specific commands
-  async handleSlackCommand(slackCommand, slackUserId) {
-    try {
-      console.log('💬 Processing Slack command:', slackCommand.command);
-
-      switch (slackCommand.command) {
-        case 'connect':
-          return await slackHandler.handleConnectCommand(slackUserId);
-
-        case 'status':
-          return await slackHandler.handleStatusCommand(slackUserId);
-
-        case 'disconnect':
-          return await slackHandler.handleDisconnectCommand(slackUserId);
-
-        case 'manage':
-          return await slackHandler.handleManageAppsCommand(slackUserId);
-
-        default:
-          console.log('❌ Unknown Slack command:', slackCommand.command);
-          return {
-            error: `Unknown Slack command: ${slackCommand.command}`
-          };
-      }
-    } catch (error) {
-      console.error('❌ Error handling Slack command:', error.message);
-      return {
-        error: `Error processing Slack command: ${error.message}`
-      };
-    }
   }
 }
 
