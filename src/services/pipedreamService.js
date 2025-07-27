@@ -153,7 +153,6 @@ class PipedreamService {
       const requestData = {
         external_user_id: external_user_id,
         webhook_uri: webhookUrl,
-        success_redirect_uri: successUrl,
         error_redirect_uri: errorUrl,
         // Additional webhook configuration
         webhook_events: ['connection.created', 'connection.deleted', 'connection.updated'],

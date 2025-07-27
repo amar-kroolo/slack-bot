@@ -1,6 +1,5 @@
 const axios = require('axios');
 const { API_ENDPOINTS, RBAC_CONFIG, DEFAULT_APPS } = require('../config/apis');
-const pipedreamService = require('./pipedreamService');
 const { getUserConnections } = require('./databaseService');
 
 // Ensure dotenv is loaded
@@ -16,7 +15,7 @@ class ApiService {
 
     this.baseURL = process.env.API_BASE_URL;
     console.log('🔧 API Service initialized with baseURL:', this.baseURL);
-    
+
     // Create axios instance with default config
     this.client = axios.create({
       baseURL: this.baseURL,
@@ -60,8 +59,13 @@ class ApiService {
           connectionData = {
             slackUserId,
             slackEmail,
-            appNames: ["google_drive"],
-            accountIds: ["apn_wGhDOAY"]
+            appNames: DEFAULT_APPS,
+            accountIds: ["apn_XehedEz",
+              "apn_Xehed1w",
+              "apn_yghjwOb",
+              "apn_7rhaEpm",
+              "apn_x7hrxmn",
+              "apn_arhpXvr"]
           };
         }
 
@@ -115,36 +119,35 @@ class ApiService {
   cleanParameters(parameters) {
     // Remove undefined/null values and empty strings
     const cleaned = {};
-    
+
     for (const [key, value] of Object.entries(parameters)) {
       if (value !== undefined && value !== null && value !== '') {
         cleaned[key] = value;
       }
     }
-    
+
     return cleaned;
   }
 
   replacePathParameters(url, parameters) {
     let processedUrl = url;
-    
+
     // Replace path parameters like {userId} with actual values
     const pathParamRegex = /\{(\w+)\}/g;
     let match;
-    
+
     while ((match = pathParamRegex.exec(url)) !== null) {
       const paramName = match[1];
       const paramValue = parameters[paramName];
-      
+
       if (paramValue) {
         processedUrl = processedUrl.replace(`{${paramName}}`, paramValue);
       }
     }
-    
+
     return processedUrl;
   }
 
-  // Method to test API connectivity
   async testConnection() {
     try {
       const response = await this.client.get('/health', { timeout: 5000 });
@@ -162,7 +165,6 @@ class ApiService {
     }
   }
 
-  // Method to get API status/info
   async getApiInfo() {
     const info = {
       baseURL: this.baseURL,
