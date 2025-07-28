@@ -176,7 +176,7 @@ CRITICAL: Return ONLY the JSON object. No explanatory text, no code fences, no m
           content: prompt
         }
       ],
-      temperature: 0.3,
+      temperature: 0.8,
       max_tokens: 800,
       top_p: 1,
       frequency_penalty: 0,

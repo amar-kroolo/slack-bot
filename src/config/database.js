@@ -147,8 +147,9 @@ class DatabaseConfig {
       const Connection = require('../models/Connection');
 
       // Ensure indexes are created
-      await User.createIndexes();
-      await Connection.createIndexes();
+     await User.createIndexes();
+     await Connection.createIndexes();
+ 
 
       console.log('✅ Database initialized successfully');
       return true;
