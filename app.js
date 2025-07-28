@@ -3,7 +3,7 @@ const dotenv = require('dotenv');
 const queryHandler = require('./src/handlers/queryHandler');
 const { formatResponse } = require('./src/utils/formatter');
 const databaseConfig = require('./src/config/database');
-
+const { requireUserAuthentication } = require('./src/middleware/authenticateUser');
 // Load environment variables
 dotenv.config();
 
@@ -118,6 +118,17 @@ app.event('app_mention', async ({ event, client, logger }) => {
         finalEmail = 'default@example.com';
         console.log('📧 Using hardcoded fallback email:', finalEmail);
       }
+    }
+
+    const userId = await requireUserAuthentication({
+      email: extractedEmail,  // could be null
+      client,
+      channel: event.channel,
+    });
+
+    if (!userId) {
+      // User not authorized, middleware has sent the denial message, stop processing
+      return;
     }
 
     console.log('✅ FINAL EMAIL DECISION:', finalEmail);
@@ -324,7 +335,16 @@ app.message(async ({ message, client, logger }) => {
     } catch (error) {
       console.log('⚠️ Could not get DM user info:', error.message);
     }
+          const userId = await requireUserAuthentication({
+      email: userInfo?.user?.profile?.email,
+      client,
+      channel: message.channel,
+    });
 
+    if (!userId) {
+      // Access denied message sent by middleware
+      return;
+    }
     // Process the query with user context including email
     const userContext = {
       slackUserId: message.user,
