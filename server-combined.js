@@ -7,10 +7,7 @@ const databaseConfig = require('./src/config/database');
 dotenv.config();
 
 // Determine deployment mode
-const isProduction =     console.log('\n🎯 Subscribed to events:');
-    console.log('   • app_mention - For direct bot mentions');
-    console.log('   • message - For direct messages and channel messages');
-    console.log('   • link_shared - For shared links');ss.env.NODE_ENV === 'production';
+const isProduction = process.env.NODE_ENV === 'production';
 const PORT = process.env.PORT || 3000;
 
 // Initialize Express receiver for Slack with more detailed logging
