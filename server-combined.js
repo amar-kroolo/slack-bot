@@ -67,11 +67,22 @@ app.message(async ({ message, say }) => {
   }
 });
 
-// Add existing Slack event handlers from app.js
-require('./app')(app);
+// Import handlers and routes
+const setupSlackHandlers = require('./app');
+const setupWebRoutes = require('./server');
 
-// Add existing web routes from server.js
-require('./server')(expressApp);
+// Set up handlers and routes
+if (typeof setupSlackHandlers === 'function') {
+  setupSlackHandlers(app);
+} else {
+  console.warn('Warning: app.js does not export a function');
+}
+
+if (typeof setupWebRoutes === 'function') {
+  setupWebRoutes(expressApp);
+} else {
+  console.warn('Warning: server.js does not export a function');
+}
 
 (async () => {
   try {
