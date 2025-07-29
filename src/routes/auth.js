@@ -81,9 +81,9 @@ router.get('/pipedream/callback', async (req, res) => {
             <p>You can now use personalized search in Slack!</p>
             <p><strong>Try these commands:</strong></p>
             <ul style="text-align: left; display: inline-block;">
-              <li><code>@SmartBot search for documents</code></li>
-              <li><code>@SmartBot pipedream status</code></li>
-              <li><code>@SmartBot pipedream tools</code></li>
+              <li><code>@Kroolo AI search for documents</code></li>
+              <li><code>@Kroolo AI pipedream status</code></li>
+              <li><code>@Kroolo AI pipedream tools</code></li>
             </ul>
             
             <button class="close-btn" onclick="window.close()">Close Window</button>
@@ -380,7 +380,7 @@ router.get('/pipedream/error', async (req, res) => {
             <h1 class="title">Connection Failed</h1>
             <p class="subtitle">There was an issue connecting your Pipedream account.</p>
             <p style="color: #7f8c8d; font-style: italic;">${errorMessage}</p>
-            <p>Please try connecting again from Slack by typing: <code>@SmartBot connect pipedream</code></p>
+            <p>Please try connecting again from Slack by typing: <code>@Kroolo AI connect pipedream</code></p>
             <button class="button" onclick="window.close()">Close Window</button>
           </div>
         </body>

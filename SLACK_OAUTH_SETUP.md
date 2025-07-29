@@ -80,7 +80,7 @@ SLACK_BOT_URL=http://localhost:3000
 
 2. **Test in Slack**:
    ```
-   @SmartBot connect slack
+   @Kroolo AI connect slack
    ```
 
 3. **Click the "Connect Slack Apps" button**
@@ -91,7 +91,7 @@ SLACK_BOT_URL=http://localhost:3000
 
 4. **Verify Connection**:
    ```
-   @SmartBot slack status
+   @Kroolo AI slack status
    ```
 
 ## How This Works
@@ -105,10 +105,10 @@ SLACK_BOT_URL=http://localhost:3000
 
 Once set up, users can use these commands:
 
-- `@SmartBot connect slack` - Connect Slack apps
-- `@SmartBot slack status` - Check connection status
-- `@SmartBot slack apps` - Manage connected apps
-- `@SmartBot disconnect slack` - Disconnect Slack apps
+- `@Kroolo AI connect slack` - Connect Slack apps
+- `@Kroolo AI slack status` - Check connection status
+- `@Kroolo AI slack apps` - Manage connected apps
+- `@Kroolo AI disconnect slack` - Disconnect Slack apps
 
 ## Popular Slack Apps You Can Connect
 

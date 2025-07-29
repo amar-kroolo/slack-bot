@@ -1104,8 +1104,9 @@ class PipedreamService {
 
       // Get the account ID that corresponds to this app
       const accountId = userConnections.accountIds[appIndex];
-      const userEmail = userConnections.accountEmails ? userConnections.accountEmails[appIndex] : undefined;
+      const userEmail = userConnections?.slackEmail || undefined;
       console.log('🔑 Found account ID for disconnection:', accountId);
+      console.log('📧 Found email for disconnection:', userEmail);
 
       // Also check in-memory cache
       const existing = this.userConnections.get(slackUserId) || { connections: [], lastUpdated: null };
@@ -1117,6 +1118,7 @@ class PipedreamService {
         existing.lastUpdated = new Date().toISOString();
         this.userConnections.set(slackUserId, existing);
       }
+
 
       // Use the @pipedream/sdk/server client to delete the account
       let pipedreamDisconnected = false;

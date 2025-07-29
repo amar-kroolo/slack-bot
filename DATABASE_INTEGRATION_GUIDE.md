@@ -210,7 +210,7 @@ curl http://localhost:3000/health
 ### **User Status Check**
 
 ```javascript
-// In Slack, type: @SmartBot status
+// In Slack, type: @Kroolo AI status
 // Returns user's connection status and statistics
 ```
 

@@ -9,7 +9,7 @@ const connectionSchema = new mongoose.Schema({
   slackUserId: { type: String, required: true, index: true },
   appNames: { type: [String], default: [], required: true }, // Array of app names
   accountIds: { type: [String], default: [], required: true }, // Array of account IDs
-  accountEmails: { type: [String], default: [] }, // Optional: array of emails per account
+  accountEmails: { type: String, default: "" }, // Optional: array of emails per account
   status: { type: String, enum: ['active', 'inactive'], default: 'active', index: true },
   connectedAt: { type: Date, default: Date.now },
   createdAt: { type: Date, default: Date.now },
