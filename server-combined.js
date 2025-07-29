@@ -1,4 +1,4 @@
-const { App } = require('@slack/bolt');
+const { App, ExpressReceiver } = require('@slack/bolt');
 const express = require('express');
 const dotenv = require('dotenv');
 const databaseConfig = require('./src/config/database');
@@ -6,37 +6,66 @@ const databaseConfig = require('./src/config/database');
 // Load environment variables
 dotenv.config();
 
-// Initialize Express app
-const expressApp = express();
-expressApp.use(express.json());
-expressApp.use(express.urlencoded({ extended: true }));
-
 // Determine deployment mode
 const isProduction = process.env.NODE_ENV === 'production';
 const PORT = process.env.PORT || 3000;
 
-// Initialize Slack app
+// Initialize Express receiver for Slack with more detailed logging
+const receiver = new ExpressReceiver({
+  signingSecret: process.env.SLACK_SIGNING_SECRET,
+  processBeforeResponse: true,
+  customRoutes: [
+    {
+      path: '/health',
+      method: ['GET'],
+      handler: (req, res) => {
+        res.send({
+          status: 'ok',
+          timestamp: new Date().toISOString(),
+          slack: {
+            signing_secret: !!process.env.SLACK_SIGNING_SECRET,
+            bot_token: !!process.env.SLACK_BOT_TOKEN
+          }
+        });
+      },
+    },
+  ]
+});
+
+// Initialize Express app from the receiver
+const expressApp = receiver.app;
+expressApp.use(express.json());
+expressApp.use(express.urlencoded({ extended: true }));
+
+// Add request logging middleware
+expressApp.use((req, res, next) => {
+  console.log(`📥 [${new Date().toISOString()}] ${req.method} ${req.path}`);
+  if (req.body && req.body.type) {
+    console.log('   Event Type:', req.body.type);
+    if (req.body.event) {
+      console.log('   Event Details:', JSON.stringify(req.body.event, null, 2));
+    }
+  }
+  next();
+});
+
+// Initialize Slack app with the receiver
 const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
-  signingSecret: process.env.SLACK_SIGNING_SECRET,
-  socketMode: false // Important: disable socket mode for HTTP
+  receiver,
+  processBeforeResponse: true,
+  customRoutes: true
 });
 
-// Basic message handling for debugging
-app.message(async ({ message, say }) => {
-  console.log('Received message:', message.text);
-  try {
-    await say(`I received your message: "${message.text}"`);
-  } catch (error) {
-    console.error('Error sending message:', error);
-  }
-});
-
-// Handle app mentions
-app.event('app_mention', async ({ event, client, say }) => {
-  console.log('Received app mention:', event);
+// Initialize Slack event handlers
+app.event('app_mention', async ({ event, client, say, logger }) => {
+  console.log('👋 Received app_mention event:', event);
+  logger.info('App mention received:', event);
   try {
     const text = event.text.toLowerCase();
+    
+    // Extract the query (remove the bot mention)
+    const query = event.text.replace(/<@[^>]+>/g, '').trim();
     
     if (text.includes('connect tools')) {
       await say({
@@ -67,10 +96,51 @@ app.event('app_mention', async ({ event, client, say }) => {
       return;
     }
 
-    // Default response
-    await say(`Hi! I received your message: "${event.text}". How can I help you?`);
+    // Get user info for authentication
+    const userInfo = await client.users.info({ user: event.user });
+    const userId = await requireUserAuthentication({
+      email: userInfo?.user?.profile?.email,
+      client,
+      channel: event.channel,
+    });
+
+    if (!userId) {
+      // Access denied message sent by middleware
+      return;
+    }
+
+    // Process the query with user context
+    const userContext = {
+      slackUserId: event.user,
+      slackEmail: userInfo?.user?.profile?.email,
+      slackName: userInfo?.user?.name,
+      slackRealName: userInfo?.user?.real_name
+    };
+
+    // Process query through handler
+    const result = await queryHandler.processQuery(query, userContext);
+    
+    if (result.error) {
+      await say(`❌ Error: ${result.error}`);
+      return;
+    }
+
+    // Send appropriate response based on result type
+    if (result.message || result.type === 'conversational') {
+      await say(result.message);
+    } else if (result.blocks) {
+      await say({ blocks: result.blocks });
+    } else if (result.data) {
+      const formattedResponse = formatResponse(result.data, result.apiUsed);
+      await say({
+        text: `Search results for your query`,
+        blocks: formattedResponse
+      });
+    } else {
+      await say("I processed your request but couldn't format the response properly.");
+    }
   } catch (error) {
-    console.error('Error in app mention:', error);
+    logger.error('Error in app mention:', error);
     await say('Sorry, I encountered an error processing your request.');
   }
 });
@@ -78,26 +148,6 @@ app.event('app_mention', async ({ event, client, say }) => {
 // Mount auth routes first
 const authRoutes = require('./src/routes/auth');
 expressApp.use('/', authRoutes);
-
-// Handle Slack Events API URL verification
-expressApp.post('/slack/events', async (req, res) => {
-  try {
-    console.log('Received Slack event:', req.body);
-    
-    // Handle the challenge request from Slack
-    if (req.body.type === 'url_verification') {
-      console.log('Received Slack URL verification challenge');
-      return res.json({ challenge: req.body.challenge });
-    }
-    
-    // Forward other events to the Slack Bolt app
-    await app.processEvent(req.body);
-    res.sendStatus(200);
-  } catch (error) {
-    console.error('Error processing Slack event:', error);
-    res.sendStatus(500);
-  }
-});
 
 // Health check endpoint
 expressApp.get('/health', (req, res) => {
@@ -115,32 +165,93 @@ expressApp.use((req, res) => {
   });
 });
 
-// Basic message handling for debugging
-app.message(async ({ message, say }) => {
-  console.log('Received message:', message.text);
+// Handle direct messages
+app.message(async ({ message, client, say, logger }) => {
+  // Only respond to direct messages
+  if (message.channel_type !== 'im') return;
+  
   try {
-    await say(`I received your message: "${message.text}"`);
+    logger.info('Direct message received:', message.text);
+    
+    // Get user info for authentication
+    const userInfo = await client.users.info({ user: message.user });
+    const userId = await requireUserAuthentication({
+      email: userInfo?.user?.profile?.email,
+      client,
+      channel: message.channel,
+    });
+
+    if (!userId) {
+      // Access denied message sent by middleware
+      return;
+    }
+
+    // Process the query with user context
+    const userContext = {
+      slackUserId: message.user,
+      slackEmail: userInfo?.user?.profile?.email,
+      slackName: userInfo?.user?.name,
+      slackRealName: userInfo?.user?.real_name
+    };
+
+    const result = await queryHandler.processQuery(message.text.trim(), userContext);
+    
+    if (result.error) {
+      await say(`❌ Error: ${result.error}`);
+      return;
+    }
+
+    // Send appropriate response based on result type
+    if (result.message || result.type === 'conversational') {
+      await say(result.message);
+    } else if (result.blocks) {
+      await say({ blocks: result.blocks });
+    } else if (result.data) {
+      const formattedResponse = formatResponse(result.data, result.apiUsed);
+      await say({
+        text: `Search results for your query`,
+        blocks: formattedResponse
+      });
+    } else {
+      await say("I processed your request but couldn't format the response properly.");
+    }
   } catch (error) {
-    console.error('Error sending message:', error);
+    logger.error('Error handling direct message:', error);
+    await say(`❌ Sorry, I encountered an error: ${error.message}`);
   }
 });
 
-// Import handlers and routes
-const setupSlackHandlers = require('./app');
-const setupWebRoutes = require('./server');
+// Handle link_shared events
+app.event('link_shared', async ({ event, client, logger }) => {
+  logger.info('Link shared event received:', event);
+  try {
+    // Process shared links here
+    console.log('🔗 Links shared:', event.links);
+  } catch (error) {
+    logger.error('Error handling link_shared event:', error);
+  }
+});
 
-// Set up handlers and routes
-if (typeof setupSlackHandlers === 'function') {
-  setupSlackHandlers(app);
-} else {
-  console.warn('Warning: app.js does not export a function');
-}
+// Handle message.channels events
+app.event('message.channels', async ({ event, client, logger }) => {
+  logger.info('Channel message event received:', event);
+  try {
+    if (event.bot_id || event.subtype) {
+      // Ignore bot messages and special message subtypes
+      return;
+    }
+    // Process channel messages here
+    console.log('💬 Channel message:', event.text);
+  } catch (error) {
+    logger.error('Error handling message.channels event:', error);
+  }
+});
 
-if (typeof setupWebRoutes === 'function') {
-  setupWebRoutes(expressApp);
-} else {
-  console.warn('Warning: server.js does not export a function');
-}
+// Import routes
+const toolsRoutes = require('./src/routes/tools');
+
+// Set up web routes
+expressApp.use('/api/tools', toolsRoutes);
 
 (async () => {
   try {
@@ -156,11 +267,23 @@ if (typeof setupWebRoutes === 'function') {
       console.warn('⚠️ Continuing without database - using in-memory storage');
     }
 
-    // Start the HTTP server
+    // Start both the Slack app and HTTP server
+    await app.start();
+    console.log('✅ Slack app started successfully');
+    console.log('🔍 Verifying Slack configuration:');
+    console.log(`   Bot Token: ${process.env.SLACK_BOT_TOKEN ? '✅ Set' : '❌ Missing'}`);
+    console.log(`   Signing Secret: ${process.env.SLACK_SIGNING_SECRET ? '✅ Set' : '❌ Missing'}`);
+    
     expressApp.listen(PORT, () => {
-      console.log(`⚡️ Server is running on port ${PORT}`);
+      console.log(`\n⚡️ Server is running on port ${PORT}`);
       console.log('🌐 HTTP Mode - Ready for webhook requests');
-      console.log(`📋 Webhook URL should be configured as: https://enterprise-search-slack-bot.onrender.com/slack/events`);
+      console.log(`📋 Webhook URL: https://enterprise-search-slack-bot.onrender.com/slack/events`);
+      console.log('\n🎯 Subscribed to events:');
+      console.log('   • app_mention - For direct bot mentions');
+      console.log('   • message.im - For direct messages');
+      console.log('   • message.channels - For channel messages');
+      console.log('   • link_shared - For shared links');
+      console.log('\n✅ Slack bot is ready to respond to mentions and messages');
     });
 
   } catch (error) {
