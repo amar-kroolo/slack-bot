@@ -3,7 +3,8 @@ const express = require('express');
 const dotenv = require('dotenv');
 const databaseConfig = require('./src/config/database');
 const { requireUserAuthentication } = require('./src/middleware/authenticateUser');
-
+const queryHandler = require('./src/handlers/queryHandler');
+const { formatResponse } = require('./src/utils/formatter');
 // Load environment variables
 dotenv.config();
 
