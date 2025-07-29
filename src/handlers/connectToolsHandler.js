@@ -645,7 +645,7 @@ class ConnectToolsHandler {
     }
 
     try {
-      const result = await pipedreamService.removeUserConnection(userEmail || slackUserId, toolType);
+      const result = await pipedreamService.removeUserConnection(slackUserId, toolType);
 
       if (result.success) {
         return {
@@ -771,3 +771,71 @@ class ConnectToolsHandler {
 }
 
 module.exports = new ConnectToolsHandler();
+
+// async handleShowConnections(slackUserId, userEmail) {
+//     const { createBackendClient } = require('@pipedream/sdk/server');
+//     console.log('📊 Showing connections for user:', slackUserId);
+
+//     try {
+//       const pd = createBackendClient({
+//         environment: "development", // Change to 'production' in prod
+//         credentials: {
+//           clientId: process.env.PIPEDREAM_CLIENT_ID,
+//           clientSecret: process.env.PIPEDREAM_CLIENT_SECRET,
+//         },
+//         projectId: process.env.PIPEDREAM_PROJECT_ID,
+//       });
+
+//       const externalUserId = slackUserId || userEmail;
+
+//       const accounts = await pd.getAccounts({
+//         external_user_id: externalUserId,
+//         include_credentials: false,
+//       });
+
+//       console.log("-----",accounts)
+
+      
+
+//       const hasConnections = 0;
+
+//       if (hasConnections) {
+//         return {
+//           response_type: 'ephemeral',
+//           text: '🔗 Your Connected Tools',
+//           attachments: [{
+//             color: 'good',
+//             title: `✅ Connected Tools (${uniqueApps.length})`,
+//             text: 'You have connected the following tools:',
+//             fields: uniqueApps.map(app => ({
+//               title: this.getToolDisplayName(app),
+//             }))
+//           }]
+//         };
+//       } else {
+//         return {
+//           response_type: 'ephemeral',
+//           text: '🔗 Your Connected Tools',
+//           attachments: [{
+//             color: 'warning',
+//             title: '📭 No Connections Found',
+//             text: 'You haven\'t connected any tools yet.',
+//             actions: [
+//               {
+//                 type: 'button',
+//                 text: '🔗 Connect Tools',
+//                 value: 'connect_tools_action',
+//                 style: 'primary'
+//               }
+//             ]
+//           }]
+//         };
+//       }
+//     } catch (error) {
+//       console.error('❌ Error showing connections:', error.message);
+//       return {
+//         response_type: 'ephemeral',
+//         text: '❌ Error loading your connections. Please try again later.'
+//       };
+//     }
+//   }

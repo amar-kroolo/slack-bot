@@ -1,6 +1,6 @@
-import UserModel from "../models/User.js";
+const UserModel = require("../models/User");
 
-export const requireUserAuthentication = async ({ email, client, channel, onDeny }) => {
+const requireUserAuthentication = async ({ email, client, channel, onDeny }) => {
   const signupUrl = "https://app.kroolo.com/signup";
 
 
@@ -216,3 +216,5 @@ export const requireUserAuthentication = async ({ email, client, channel, onDeny
 
   return user.userId;
 };
+
+module.exports = { requireUserAuthentication };
