@@ -165,14 +165,21 @@ expressApp.use((req, res) => {
   });
 });
 
-// Handle direct messages
+// Handle messages (both DMs and channel messages)
 app.message(async ({ message, client, say, logger }) => {
-  // Only respond to direct messages
-  if (message.channel_type !== 'im') return;
-  
   try {
-    logger.info('Direct message received:', message.text);
+    // Ignore bot messages and special message subtypes
+    if (message.bot_id || message.subtype) {
+      return;
+    }
+
+    logger.info(`Message received in ${message.channel_type}:`, message.text);
     
+    // For channel messages, only process if the bot is mentioned
+    if (message.channel_type === 'channel' && !message.text.includes(`<@${client.botUserId}>`)) {
+      return;
+    }
+
     // Get user info for authentication
     const userInfo = await client.users.info({ user: message.user });
     const userId = await requireUserAuthentication({
@@ -194,7 +201,13 @@ app.message(async ({ message, client, say, logger }) => {
       slackRealName: userInfo?.user?.real_name
     };
 
-    const result = await queryHandler.processQuery(message.text.trim(), userContext);
+    // Remove bot mention from the message for channel messages
+    let query = message.text;
+    if (message.channel_type === 'channel') {
+      query = query.replace(new RegExp(`<@${client.botUserId}>`, 'g'), '').trim();
+    }
+
+    const result = await queryHandler.processQuery(query, userContext);
     
     if (result.error) {
       await say(`❌ Error: ${result.error}`);
@@ -216,7 +229,7 @@ app.message(async ({ message, client, say, logger }) => {
       await say("I processed your request but couldn't format the response properly.");
     }
   } catch (error) {
-    logger.error('Error handling direct message:', error);
+    logger.error('Error handling message:', error);
     await say(`❌ Sorry, I encountered an error: ${error.message}`);
   }
 });
@@ -229,21 +242,6 @@ app.event('link_shared', async ({ event, client, logger }) => {
     console.log('🔗 Links shared:', event.links);
   } catch (error) {
     logger.error('Error handling link_shared event:', error);
-  }
-});
-
-// Handle message.channels events
-app.event('message.channels', async ({ event, client, logger }) => {
-  logger.info('Channel message event received:', event);
-  try {
-    if (event.bot_id || event.subtype) {
-      // Ignore bot messages and special message subtypes
-      return;
-    }
-    // Process channel messages here
-    console.log('💬 Channel message:', event.text);
-  } catch (error) {
-    logger.error('Error handling message.channels event:', error);
   }
 });
 
