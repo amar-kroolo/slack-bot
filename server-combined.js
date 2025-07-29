@@ -19,18 +19,76 @@ const PORT = process.env.PORT || 3000;
 const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
   signingSecret: process.env.SLACK_SIGNING_SECRET,
+  socketMode: false // Important: disable socket mode for HTTP
 });
+
+// Basic message handling for debugging
+app.message(async ({ message, say }) => {
+  console.log('Received message:', message.text);
+  try {
+    await say(`I received your message: "${message.text}"`);
+  } catch (error) {
+    console.error('Error sending message:', error);
+  }
+});
+
+// Handle app mentions
+app.event('app_mention', async ({ event, client, say }) => {
+  console.log('Received app mention:', event);
+  try {
+    const text = event.text.toLowerCase();
+    
+    if (text.includes('connect tools')) {
+      await say({
+        blocks: [
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: "*🔗 Connect Your Tools*\nChoose a tool to connect:"
+            }
+          },
+          {
+            type: "actions",
+            elements: [
+              {
+                type: "button",
+                text: {
+                  type: "plain_text",
+                  text: "🔗 Connect Any Tool"
+                },
+                value: "any_tool",
+                action_id: "connect_tool"
+              }
+            ]
+          }
+        ]
+      });
+      return;
+    }
+
+    // Default response
+    await say(`Hi! I received your message: "${event.text}". How can I help you?`);
+  } catch (error) {
+    console.error('Error in app mention:', error);
+    await say('Sorry, I encountered an error processing your request.');
+  }
+});
+
+// Mount auth routes first
+const authRoutes = require('./src/routes/auth');
+expressApp.use('/', authRoutes);
 
 // Handle Slack Events API URL verification
 expressApp.post('/slack/events', async (req, res) => {
   try {
+    console.log('Received Slack event:', req.body);
+    
     // Handle the challenge request from Slack
     if (req.body.type === 'url_verification') {
       console.log('Received Slack URL verification challenge');
       return res.json({ challenge: req.body.challenge });
     }
-    
-    console.log('Received Slack event:', req.body.event?.type);
     
     // Forward other events to the Slack Bolt app
     await app.processEvent(req.body);
