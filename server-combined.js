@@ -22,21 +22,49 @@ const app = new App({
 });
 
 // Handle Slack Events API URL verification
-expressApp.post('/slack/events', (req, res) => {
-  // Handle the challenge request from Slack
-  if (req.body.type === 'url_verification') {
-    console.log('Received Slack URL verification challenge');
-    return res.json({ challenge: req.body.challenge });
+expressApp.post('/slack/events', async (req, res) => {
+  try {
+    // Handle the challenge request from Slack
+    if (req.body.type === 'url_verification') {
+      console.log('Received Slack URL verification challenge');
+      return res.json({ challenge: req.body.challenge });
+    }
+    
+    console.log('Received Slack event:', req.body.event?.type);
+    
+    // Forward other events to the Slack Bolt app
+    await app.processEvent(req.body);
+    res.sendStatus(200);
+  } catch (error) {
+    console.error('Error processing Slack event:', error);
+    res.sendStatus(500);
   }
-  
-  // Forward other events to the Slack Bolt app
-  app.processEvent(req.body);
-  res.sendStatus(200);
 });
 
 // Health check endpoint
 expressApp.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Catch-all handler for unhandled routes
+expressApp.use((req, res) => {
+  console.log(`[INFO] Unhandled ${req.method} request made to ${req.path}`);
+  res.status(404).json({ 
+    status: 'error', 
+    message: 'Not Found',
+    path: req.path,
+    method: req.method
+  });
+});
+
+// Basic message handling for debugging
+app.message(async ({ message, say }) => {
+  console.log('Received message:', message.text);
+  try {
+    await say(`I received your message: "${message.text}"`);
+  } catch (error) {
+    console.error('Error sending message:', error);
+  }
 });
 
 // Add existing Slack event handlers from app.js
