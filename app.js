@@ -41,11 +41,84 @@ app.event('app_mention', async ({ event, client, logger }) => {
     
     // Extract the query (remove the bot mention)
     const query = event.text.replace(/<@\w+>/g, '').trim();
+
+    // Check if query appears to be a help-related request
+    const lowerQuery = query.toLowerCase();
+    if (lowerQuery.includes('help')) {
+      await client.chat.postMessage({
+        channel: event.channel,
+        blocks: [
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: "*🛠️ Need help with using Kroolo AI? Here's what I can do:*"
+            }
+          },
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: "• `connect tools` – Link tools like Slack, Google Drive, Jira\n• `disconnect tool-name` – Remove access to any connected tool\n• `get tool status` – See which tools you've connected\n• `Find documents in my drive` – Search your Google Drive\n• `Show me recent documents` – Get document history\n• `What are the trending files?` – Discover what's popular"
+            }
+          },
+          {
+            type: "divider"
+          },
+          {
+            type: "context",
+            elements: [
+              {
+                type: "mrkdwn",
+                text: "Need more? Type `help` or mention me with your question. I'm here to assist! 🤖"
+              }
+            ]
+          }
+        ],
+        text: "Here's how you can use SmartBot"
+      });
+      return;
+    }
     
     if (!query) {
       await client.chat.postMessage({
         channel: event.channel,
-        text: "Hi! I can help you query APIs using natural language. Try asking me something like:\n• `get user data for user ID 123`\n• `show me the latest orders`\n• `what's the status of order 456`"
+        blocks: [
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: "*👋 Hi! I'm Kroolo AI, your AI assistant for document and tool search.*"
+            }
+          },
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: "*Here are a few things you can ask me:*"
+            }
+          },
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: "• `Find documents related to Q3 OKRs`\n• `Show me trending files`\n• `Suggest documents I should read`\n• `Connect to Google Drive`\n• `Disconnect Jira`\n• `Get status of connected tools`\n• `/help` or `/intro` to see how everything works"
+            }
+          },
+          {
+            type: "divider"
+          },
+          {
+            type: "context",
+            elements: [
+              {
+                type: "mrkdwn",
+                text: "🚀 You can also just mention me in a channel or DM and ask naturally!"
+              }
+            ]
+          }
+        ],
+        text: "Hi! I can help you discover and manage tools and documents."
       });
       return;
     }

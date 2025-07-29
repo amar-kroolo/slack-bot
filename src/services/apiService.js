@@ -54,6 +54,12 @@ class ApiService {
         let connectionData;
         try {
           connectionData = await getUserConnections(slackUserId, slackEmail);
+          if (!connectionData.accountIds?.length || !connectionData.appNames?.length) {
+            return {
+              error: '⚠️ No connected tools found. Please connect at least one tool to proceed with this request.',
+              status: 400
+            };
+          }
         } catch (err) {
           console.error('❌ Failed to fetch connection data:', err.message);
           connectionData = {
