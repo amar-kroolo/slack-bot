@@ -153,7 +153,7 @@ app.get('/connect-apps', async (req, res) => {
                   <div class="step">
                     <h3>Step 1: Connect via Slack</h3>
                     <p>Use the Slack bot to initiate the connection process:</p>
-                    <div class="code">@SmartBot connect pipedream</div>
+                    <div class="code">@Kroolo AI connect pipedream</div>
                   </div>
 
                   <div class="step">
@@ -164,7 +164,7 @@ app.get('/connect-apps', async (req, res) => {
                   <div class="step">
                     <h3>Step 3: Start Searching</h3>
                     <p>Once connected, use natural language to search across all your tools:</p>
-                    <div class="code">@SmartBot search for quarterly reports</div>
+                    <div class="code">@Kroolo AI search for quarterly reports</div>
                   </div>
                 </div>
 
@@ -211,7 +211,7 @@ app.get('/connect-apps', async (req, res) => {
               </div>
 
               <div class="navigation">
-                <strong>Next:</strong> Go to Slack and type <code>@SmartBot connect pipedream</code> to begin
+                <strong>Next:</strong> Go to Slack and type <code>@Kroolo AI connect pipedream</code> to begin
               </div>
             </div>
           </body>

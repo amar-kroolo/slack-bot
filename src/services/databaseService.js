@@ -29,7 +29,7 @@ async function storeConnection({ slackUserId, appName, accountId, accountEmail }
       slackUserId,
       appNames: [appName],
       accountIds: [accountId],
-      accountEmails: accountEmail ? [accountEmail] : [],
+      accountEmails: accountEmail,
       status: 'active',
       connectedAt: new Date()
     });
@@ -52,7 +52,7 @@ async function storeConnection({ slackUserId, appName, accountId, accountEmail }
   }
 
   if (accountEmail && !connection.accountEmails.includes(accountEmail)) {
-    connection.accountEmails.push(accountEmail);
+    connection.accountEmails = accountEmail;
     updated = true;
   }
 
@@ -69,6 +69,7 @@ async function getUserConnections(slackUserId, slackEmail) {
   try {
     const connection = await Connection.findOne({ slackUserId });
 
+
     if (!connection) {
       // Fallback: return static/default connection
       return {
@@ -83,7 +84,7 @@ async function getUserConnections(slackUserId, slackEmail) {
 
     return {
       slackUserId: connection.slackUserId,
-      slackEmail: slackEmail || connection.accountEmails?.[0] || null,
+      slackEmail: connection.accountEmails || "amar.kumar@kroolo.com",         
       appNames: connection.appNames || [],
       accountIds: connection.accountIds || []
     };
@@ -126,10 +127,6 @@ async function disconnectUserConnection(slackUserId, appName) {
     connection.appNames.splice(appIndex, 1);
     connection.accountIds.splice(appIndex, 1);
     
-    // If there's a matching email, remove it too
-    if (connection.accountEmails && connection.accountEmails.length > appIndex) {
-      connection.accountEmails.splice(appIndex, 1);
-    }
     
     connection.updatedAt = new Date();
     await connection.save();

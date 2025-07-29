@@ -636,7 +636,7 @@ class ConnectToolsHandler {
           fields: [
             {
               title: 'Examples',
-              value: '• `@SmartBot disconnect google drive`\n• `@SmartBot disconnect jira`\n• `@SmartBot disconnect notion`',
+              value: '• `@Kroolo AI disconnect google drive`\n• `@Kroolo AI disconnect jira`\n• `@Kroolo AI disconnect notion`',
               short: false
             }
           ]
@@ -656,11 +656,6 @@ class ConnectToolsHandler {
             title: `🗑️ ${this.getToolDisplayName(toolType)} Disconnected`,
             text: result.message,
             fields: [
-              {
-                title: '📊 Remaining Connections',
-                value: `${result.remainingConnections} tools still connected`,
-                short: true
-              },
               {
                 title: '🔍 Search Impact',
                 value: 'This tool will no longer be included in your searches',

@@ -167,7 +167,7 @@ class SlackHandler {
             fields: [
               {
                 title: 'Examples',
-                value: '• `@SmartBot disconnect google drive`\n• `@SmartBot disconnect jira`\n• `@SmartBot disconnect notion`',
+                value: '• `@Kroolo AI disconnect google drive`\n• `@Kroolo AI disconnect jira`\n• `@Kroolo AI disconnect notion`',
                 short: false
               }
             ]
@@ -186,7 +186,7 @@ class SlackHandler {
           text: `⚠️ You don't have ${toolType} connected.`,
           attachments: [{
             color: 'warning',
-            text: 'Use `@SmartBot connect` to see available tools to connect.'
+            text: 'Use `@Kroolo AI connect` to see available tools to connect.'
           }]
         };
       }

@@ -8,7 +8,7 @@ class PipedreamHandler {
     console.log('🔧 Pipedream Handler initialized');
   }
 
-  // Handle connection command: @SmartBot connect pipedream
+  // Handle connection command: @Kroolo AI connect pipedream
   async handleConnectCommand(slackUserId, channelId) {
     try {
       console.log('🔗 Processing Pipedream connection request');
@@ -83,7 +83,7 @@ class PipedreamHandler {
     }
   }
 
-  // Handle disconnect command: @SmartBot disconnect pipedream
+  // Handle disconnect command: @Kroolo AI disconnect pipedream
   async handleDisconnectCommand(slackUserId) {
     try {
       console.log('🔌 Processing Pipedream disconnection request');
@@ -97,7 +97,7 @@ class PipedreamHandler {
           text: '⚠️ You are not connected to Pipedream.',
           attachments: [{
             color: 'warning',
-            text: 'Use `@SmartBot connect pipedream` to connect your account.'
+            text: 'Use `@Kroolo AI connect pipedream` to connect your account.'
           }]
         };
       }
@@ -111,7 +111,7 @@ class PipedreamHandler {
           text: '✅ Successfully disconnected from Pipedream',
           attachments: [{
             color: 'good',
-            text: 'Your personalized search access has been removed. You can reconnect anytime using `@SmartBot connect pipedream`.'
+            text: 'Your personalized search access has been removed. You can reconnect anytime using `@Kroolo AI connect pipedream`.'
           }]
         };
       } else {
@@ -134,7 +134,7 @@ class PipedreamHandler {
     }
   }
 
-  // Handle status command: @SmartBot pipedream status
+  // Handle status command: @Kroolo AI pipedream status
   async handleStatusCommand(slackUserId) {
     try {
       console.log('📊 Processing Pipedream status request');
@@ -229,7 +229,7 @@ class PipedreamHandler {
     }
   }
 
-  // Handle tools command: @SmartBot pipedream tools
+  // Handle tools command: @Kroolo AI pipedream tools
   async handleToolsCommand(slackUserId) {
     try {
       console.log('🛠️ Processing Pipedream tools request');
@@ -243,7 +243,7 @@ class PipedreamHandler {
           text: '⚠️ You need to connect to Pipedream first.',
           attachments: [{
             color: 'warning',
-            text: 'Use `@SmartBot connect pipedream` to connect your account and manage tools.'
+            text: 'Use `@Kroolo AI connect pipedream` to connect your account and manage tools.'
           }]
         };
       }
