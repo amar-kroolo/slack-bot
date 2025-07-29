@@ -95,8 +95,11 @@ class ApiService {
       if (requestConfig.url.includes('{') && requestConfig.url.includes('}')) {
         requestConfig.url = this.replacePathParameters(requestConfig.url, parameters);
       }
-
+      
       const response = await this.client(requestConfig);
+      console.log('\n📋 Complete Response Data:');
+      console.log(JSON.stringify(response.data, null, 2));
+      console.log('===== API SERVICE COMPLETE =====\n');
       return {
         data: response.data,
         status: response.status,

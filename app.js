@@ -93,14 +93,6 @@ app.event('app_mention', async ({ event, client, logger }) => {
       console.log('   Error Code:', error.code);
       console.log('   Error Data:', error.data);
 
-      if (error.message.includes('missing_scope')) {
-        console.log('🔧 SOLUTION: Add "users:read" scope to your Slack app');
-        console.log('   1. Go to https://api.slack.com/apps');
-        console.log('   2. Select your app');
-        console.log('   3. Go to "OAuth & Permissions"');
-        console.log('   4. Add "users:read" scope');
-        console.log('   5. Reinstall the app');
-      }
     }
 
     // Fallback email logic
@@ -335,12 +327,13 @@ app.message(async ({ message, client, logger }) => {
     } catch (error) {
       console.log('⚠️ Could not get DM user info:', error.message);
     }
-          const userId = await requireUserAuthentication({
+    const userId = await requireUserAuthentication({
       email: userInfo?.user?.profile?.email,
       client,
       channel: message.channel,
     });
 
+    console.log("userId with Mongodb->",userId)
     if (!userId) {
       // Access denied message sent by middleware
       return;

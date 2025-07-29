@@ -1088,33 +1088,103 @@ class PipedreamService {
     return connectionInfo;
   }
 
-  // Remove a connection for user
-  async removeUserConnection(userId, appName) {
-    console.log('🗑️ Removing connection for user:', userId, 'app:', appName);
+  // Remove a connection for user 
+  async removeUserConnection(slackUserId, appName) {
+    console.log('🗑️ Removing connection for user:', slackUserId, 'app:', appName);
 
     try {
-      // In production, call Pipedream API to disconnect
-      // For now, we'll simulate the API call and update local cache
+      // First, get the account ID from the database
+      const userConnections = await databaseService.getUserConnections(slackUserId);
+      const appIndex = userConnections.appNames.indexOf(appName);
 
-      const existing = this.userConnections.get(userId) || { connections: [], lastUpdated: null };
-      const connectionIndex = existing.connections.findIndex(conn => conn.app === appName);
-
-      if (connectionIndex === -1) {
-        console.log('❌ Connection not found');
+      if (appIndex === -1) {
+        console.log('❌ Connection not found in database');
         return { success: false, message: 'Connection not found' };
       }
 
-      const connection = existing.connections[connectionIndex];
+      // Get the account ID that corresponds to this app
+      const accountId = userConnections.accountIds[appIndex];
+      const userEmail = userConnections.accountEmails ? userConnections.accountEmails[appIndex] : undefined;
+      console.log('🔑 Found account ID for disconnection:', accountId);
 
-      // TODO: In production, make API call to Pipedream to disconnect
-      // await axios.delete(`${this.apiBase}/connect/${this.projectId}/accounts/${connection.account_id}`, {
-      //   headers: { 'Authorization': `Bearer ${await this.getAccessToken()}` }
-      // });
+      // Also check in-memory cache
+      const existing = this.userConnections.get(slackUserId) || { connections: [], lastUpdated: null };
+      const connectionIndex = existing.connections.findIndex(conn => conn.app === appName);
 
-      // Remove from local cache
-      existing.connections.splice(connectionIndex, 1);
-      existing.lastUpdated = new Date().toISOString();
-      this.userConnections.set(userId, existing);
+      if (connectionIndex !== -1) {
+        // Remove from local cache
+        existing.connections.splice(connectionIndex, 1);
+        existing.lastUpdated = new Date().toISOString();
+        this.userConnections.set(slackUserId, existing);
+      }
+
+      // Use the @pipedream/sdk/server client to delete the account
+      let pipedreamDisconnected = false;
+      if (accountId) {
+        try {
+          // Instantiate a fresh pd client with env vars (in case needed)
+          const { createBackendClient } = require('@pipedream/sdk/server');
+          const pd = createBackendClient({
+            environment: process.env.PIPEDREAM_ENV || 'development',
+            credentials: {
+              clientId: process.env.PIPEDREAM_CLIENT_ID,
+              clientSecret: process.env.PIPEDREAM_CLIENT_SECRET,
+            },
+            projectId: process.env.PIPEDREAM_PROJECT_ID,
+          });
+
+          console.log(`🔌 Calling pd.deleteAccount(${accountId}) for app ${appName}`);
+          try {
+            await pd.deleteAccount(accountId);
+            console.log('✅ Pipedream SDK: Account deleted successfully (204 No Content expected)');
+            pipedreamDisconnected = true;
+          } catch (sdkErr) {
+            console.error('⚠️ Error from Pipedream SDK deleteAccount:', sdkErr.message);
+            pipedreamDisconnected = false;
+          }
+        } catch (err) {
+          console.error('⚠️ Error initializing Pipedream SDK client or deleting account:', err.message);
+          pipedreamDisconnected = false;
+        }
+      } else {
+        console.log('⚠️ No account ID found, skipping Pipedream API call');
+        // If no account ID, we'll still proceed with database disconnection
+        pipedreamDisconnected = true;
+      }
+
+      // Only proceed to Astra DB and MongoDB disconnection if Pipedream disconnection was successful or skipped
+      if (pipedreamDisconnected) {
+        // Use new Astra DB disconnect endpoint and run both Astra and MongoDB disconnects in parallel
+        const DISCONNECT_ASTRA_DB = `${process.env.API_BASE_URL}/disconnect`;
+
+        const astraCall = axios.post(DISCONNECT_ASTRA_DB, {
+          account_id: accountId,
+          external_user_id: slackUserId,
+          user_email: userEmail,
+        }, {
+          headers: {
+            "Content-Type": "application/json",
+          }
+        });
+
+        const dbCall = databaseService.disconnectUserConnection(slackUserId, appName);
+
+        try {
+          const [astraRes, dbRes] = await Promise.all([astraCall, dbCall]);
+
+          if (!dbRes) {
+            console.log('⚠️ MongoDB disconnection failed');
+            return { success: false, message: 'Failed to disconnect from MongoDB. Please try again.' };
+          }
+
+          console.log("✅ Disconnected from Astra DB and MongoDB");
+        } catch (err) {
+          console.error("❌ One of the disconnections failed:", err.message);
+          return { success: false, message: 'Failed to disconnect from all systems. Please try again.' };
+        }
+      } else {
+        return { success: false, message: 'Failed to disconnect from Pipedream. Please try again.' };
+      }
 
       console.log('✅ Connection removed successfully');
       console.log('📊 User now has', existing.connections.length, 'connections');
@@ -1460,6 +1530,19 @@ class PipedreamService {
       console.log('   Real App ID stored:', accountId);
       console.log('   All user app IDs:', filteredConnections.map(c => c.account_id));
 
+      // Trigger ingestion for the connected app
+      this.triggerIngestion(userId, appSlug, accountId, userEmail)
+        .then(result => {
+          if (result.success) {
+            console.log('✅ Ingestion triggered successfully after connection storage');
+          } else {
+            console.warn('⚠️ Ingestion failed after connection storage:', result.message);
+          }
+        })
+        .catch(err => {
+          console.error('❌ Error triggering ingestion after connection storage:', err.message);
+        });
+
       return {
         success: true,
         account_id: accountId,
@@ -1485,12 +1568,110 @@ class PipedreamService {
     return connections.filter(conn => conn.status === 'active');
   }
 
+  // Trigger ingestion for supported apps after successful connection
+  async triggerIngestion(external_user_id, appSlug, accountId, userEmail) {
+    try {
+      console.log('🔄 Triggering ingestion for app:', appSlug);
+      console.log('   Account ID:', accountId);
+      console.log('   User ID:', external_user_id);
+      console.log('   User Email:', userEmail);
+
+      // Prepare ingestion payload
+      const ingestionBody = {
+        services: [appSlug],
+        account_google_drive: undefined,
+        account_slack: undefined,
+        account_dropbox: undefined,
+        account_jira: undefined,
+        account_sharepoint: undefined,
+        account_confluence: undefined,
+        account_microsoft_teams: undefined,
+        account_zendesk: undefined,
+        account_document360: undefined,
+        external_user_id: external_user_id,
+        user_email: userEmail,
+        limit: 2,
+        empty: false,
+        chunkall: false,
+        websocket_session_id: accountId,
+      };
+
+      // Set the appropriate account field based on appSlug
+      switch (appSlug) {
+        case "google_drive":
+          ingestionBody.account_google_drive = accountId;
+          break;
+        case "dropbox":
+          ingestionBody.account_dropbox = accountId;
+          break;
+        case "slack":
+          ingestionBody.account_slack = accountId;
+          break;
+        case "jira":
+          ingestionBody.account_jira = accountId;
+          break;
+        case "sharepoint":
+          ingestionBody.account_sharepoint = accountId;
+          break;
+        case "confluence":
+          ingestionBody.account_confluence = accountId;
+          break;
+        case "microsoft_teams":
+          ingestionBody.account_microsoft_teams = accountId;
+          break;
+        case "zendesk":
+          ingestionBody.account_zendesk = accountId;
+          break;
+        case "document360":
+          ingestionBody.account_document360 = accountId;
+          break;
+        default:
+          console.log('⚠️ Unsupported app for ingestion:', appSlug);
+          return { success: false, message: `Unsupported app for ingestion: ${appSlug}` };
+      }
+
+      // Remove undefined account fields
+      Object.keys(ingestionBody).forEach(
+        (key) => ingestionBody[key] === undefined && delete ingestionBody[key]
+      );
+
+      // Get the ingest endpoint from environment variables or use default
+      const ingestEndpoint = process.env.INGEST_API_ENDPOINT || `${process.env.API_BASE_URL}/ingest`;
+      console.log('🔗 Ingest API Endpoint:', ingestEndpoint);
+
+      // Call the ingest API
+      console.log('📤 Ingestion payload:', JSON.stringify(ingestionBody, null, 2));
+      const response = await axios.post(ingestEndpoint, ingestionBody, {
+        headers: { "Content-Type": "application/json" },
+      });
+
+      console.log('✅ Ingestion triggered successfully');
+      console.log('📊 Response:', response.status, response.statusText);
+      return {
+        success: true,
+        status: response.status,
+        message: 'Ingestion triggered successfully',
+        data: response.data
+      };
+    } catch (error) {
+      console.error('❌ Error triggering ingestion:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'Failed to trigger ingestion'
+      };
+    }
+  }
+
   // Notify user about successful connection
   async notifyConnectionSuccess(external_user_id, app, account_id) {
     console.log('📢 Notifying user about successful connection');
 
     // Store the real connection
     await this.storeRealConnection(external_user_id, app, account_id, null);
+    
+    // Trigger ingestion for the connected app
+    await this.triggerIngestion(external_user_id, app, account_id, null);
 
     // In a real implementation, you would:
     // 1. Find the user's Slack channel
