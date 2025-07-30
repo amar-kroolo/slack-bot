@@ -54,6 +54,12 @@ class ApiService {
         let connectionData;
         try {
           connectionData = await getUserConnections(slackUserId, slackEmail);
+          if (!connectionData.accountIds?.length || !connectionData.appNames?.length) {
+            return {
+              error: '⚠️ No connected tools found. Please connect at least one tool to proceed with this request.',
+              status: 400
+            };
+          }
         } catch (err) {
           console.error('❌ Failed to fetch connection data:', err.message);
           connectionData = {
@@ -95,8 +101,11 @@ class ApiService {
       if (requestConfig.url.includes('{') && requestConfig.url.includes('}')) {
         requestConfig.url = this.replacePathParameters(requestConfig.url, parameters);
       }
-
+      
       const response = await this.client(requestConfig);
+      console.log('\n📋 Complete Response Data:');
+      console.log(JSON.stringify(response.data, null, 2));
+      console.log('===== API SERVICE COMPLETE =====\n');
       return {
         data: response.data,
         status: response.status,

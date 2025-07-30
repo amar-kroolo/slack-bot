@@ -81,9 +81,9 @@ router.get('/pipedream/callback', async (req, res) => {
             <p>You can now use personalized search in Slack!</p>
             <p><strong>Try these commands:</strong></p>
             <ul style="text-align: left; display: inline-block;">
-              <li><code>@SmartBot search for documents</code></li>
-              <li><code>@SmartBot pipedream status</code></li>
-              <li><code>@SmartBot pipedream tools</code></li>
+              <li><code>@Kroolo AI search for documents</code></li>
+              <li><code>@Kroolo AI pipedream status</code></li>
+              <li><code>@Kroolo AI pipedream tools</code></li>
             </ul>
             
             <button class="close-btn" onclick="window.close()">Close Window</button>
@@ -380,7 +380,7 @@ router.get('/pipedream/error', async (req, res) => {
             <h1 class="title">Connection Failed</h1>
             <p class="subtitle">There was an issue connecting your Pipedream account.</p>
             <p style="color: #7f8c8d; font-style: italic;">${errorMessage}</p>
-            <p>Please try connecting again from Slack by typing: <code>@SmartBot connect pipedream</code></p>
+            <p>Please try connecting again from Slack by typing: <code>@Kroolo AI connect pipedream</code></p>
             <button class="button" onclick="window.close()">Close Window</button>
           </div>
         </body>
@@ -410,14 +410,15 @@ router.post('/api/pipedream/webhook', async (req, res) => {
     console.log('⏰ Timestamp:', new Date().toISOString());
 
     const { body } = req;
-    const { account, event } = body;
+    const { account, app, event } = body;
 
-    // Extract essential data only
-    const userId = account?.external_id || account?.name;
+    // Extract essential data from different webhook formats
+    // Handle both Pipedream standard format and our custom CONNECTION_SUCCESS format
+    const userId =  account?.external_id;
     const accountId = account?.id;
-    const appName = account?.app?.name_slug;
-    const appDisplayName = account?.app?.name;
-    const accountEmail = account?.name || account?.external_id;
+    const appName = app?.name_slug || app?.slug || app?.name || account?.app?.name_slug;
+    const appDisplayName = app?.name || account?.app?.name;
+    const accountEmail =  account?.name || account?.external_id;
     const categories = account?.app?.categories;
 
     console.log('🧩 Extracted Essential Data:');
@@ -472,6 +473,84 @@ router.post('/api/pipedream/webhook', async (req, res) => {
             accountId,
             accountEmail
           );
+
+          // Trigger ingestion for supported apps
+          console.log('🔄 Triggering ingestion for app:', appName);
+          const ingestionBody = {
+            services: [appName],
+            account_google_drive: undefined,
+            account_slack: undefined,
+            account_dropbox: undefined,
+            account_jira: undefined,
+            account_sharepoint: undefined,
+            account_confluence: undefined,
+            account_microsoft_teams: undefined,
+            account_zendesk: undefined,
+            account_document360: undefined,
+            external_user_id: userId,
+            user_email: accountEmail,
+            limit: 2,
+            empty: false,
+            chunkall: false,
+            websocket_session_id: accountId,
+          };
+
+          // Set the appropriate account field based on appName
+          switch (appName) {
+            case "google_drive":
+              ingestionBody.account_google_drive = accountId;
+              break;
+            case "dropbox":
+              ingestionBody.account_dropbox = accountId;
+              break;
+            case "slack":
+              ingestionBody.account_slack = accountId;
+              break;
+            case "jira":
+              ingestionBody.account_jira = accountId;
+              break;
+            case "sharepoint":
+              ingestionBody.account_sharepoint = accountId;
+              break;
+            case "confluence":
+              ingestionBody.account_confluence = accountId;
+              break;
+            case "microsoft_teams":
+              ingestionBody.account_microsoft_teams = accountId;
+              break;
+            case "zendesk":
+              ingestionBody.account_zendesk = accountId;
+              break;
+            case "document360":
+              ingestionBody.account_document360 = accountId;
+              break;
+            default:
+              console.log('⚠️ Unsupported app for ingestion:', appName);
+              break;
+          }
+
+          // Remove undefined account fields
+          Object.keys(ingestionBody).forEach(
+            (key) => ingestionBody[key] === undefined && delete ingestionBody[key]
+          );
+
+          // Get the ingest endpoint from environment variables or use default
+          const ingestEndpoint = `${process.env.API_BASE_URL}/ingest`;
+          console.log('🔗 Ingest API Endpoint:', ingestEndpoint);
+
+          try {
+            // Call the ingest API
+            console.log('📤 Ingestion payload:', JSON.stringify(ingestionBody, null, 2));
+            const axios = require('axios');
+            const ingestResponse = await axios.post(ingestEndpoint, ingestionBody, {
+              headers: { "Content-Type": "application/json" },
+            });
+
+            console.log('✅ Ingestion triggered successfully');
+            console.log('📊 Response:', ingestResponse.status, ingestResponse.statusText);
+          } catch (ingestError) {
+            console.error('❌ Error triggering ingestion:', ingestError.message);
+          }
         } else {
           console.error('❌ Failed to store essential data');
         }

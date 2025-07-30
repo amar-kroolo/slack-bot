@@ -29,7 +29,7 @@ async function storeConnection({ slackUserId, appName, accountId, accountEmail }
       slackUserId,
       appNames: [appName],
       accountIds: [accountId],
-      accountEmails: accountEmail ? [accountEmail] : [],
+      accountEmails: accountEmail,
       status: 'active',
       connectedAt: new Date()
     });
@@ -52,7 +52,7 @@ async function storeConnection({ slackUserId, appName, accountId, accountEmail }
   }
 
   if (accountEmail && !connection.accountEmails.includes(accountEmail)) {
-    connection.accountEmails.push(accountEmail);
+    connection.accountEmails = accountEmail;
     updated = true;
   }
 
@@ -69,6 +69,7 @@ async function getUserConnections(slackUserId, slackEmail) {
   try {
     const connection = await Connection.findOne({ slackUserId });
 
+
     if (!connection) {
       // Fallback: return static/default connection
       return {
@@ -77,16 +78,13 @@ async function getUserConnections(slackUserId, slackEmail) {
         appNames: ["google_drive","slack"],
         accountIds: ["apn_XehedEz",
           "apn_Xehed1w",
-          "apn_yghjwOb",
-          "apn_7rhaEpm",
-          "apn_x7hrxmn",
-          "apn_arhpXvr"]
+    ]
       };
     }
 
     return {
       slackUserId: connection.slackUserId,
-      slackEmail: slackEmail || connection.accountEmails?.[0] || null,
+      slackEmail: connection.accountEmails || "amar.kumar@kroolo.com",         
       appNames: connection.appNames || [],
       accountIds: connection.accountIds || []
     };
@@ -102,9 +100,52 @@ async function getUserConnections(slackUserId, slackEmail) {
   }
 }
 
+// Disconnect a specific tool for a user
+async function disconnectUserConnection(slackUserId, appName) {
+  try {
+    console.log('🔌 Disconnecting tool for user:', slackUserId, 'app:', appName);
+    
+    const connection = await Connection.findOne({ slackUserId });
+    
+    if (!connection) {
+      console.log('⚠️ No connection found for user:', slackUserId);
+      return false;
+    }
+    
+    // Find the index of the app in the appNames array
+    const appIndex = connection.appNames.indexOf(appName);
+    
+    if (appIndex === -1) {
+      console.log('⚠️ App not found in user connections:', appName);
+      return false;
+    }
+    
+    // Get the account ID that corresponds to this app
+    const accountId = connection.accountIds[appIndex];
+    
+    // Remove the app and its corresponding account ID
+    connection.appNames.splice(appIndex, 1);
+    connection.accountIds.splice(appIndex, 1);
+    
+    
+    connection.updatedAt = new Date();
+    await connection.save();
+    
+    console.log('✅ Successfully disconnected tool:', appName);
+    console.log('   Removed account ID:', accountId);
+    console.log('   Remaining apps:', connection.appNames.length);
+    
+    return true;
+  } catch (err) {
+    console.error('❌ Error disconnecting user connection:', err.message);
+    return false;
+  }
+}
+
 module.exports = {
   ensureUser,
   storeConnection,
-  getUserConnections
+  getUserConnections,
+  disconnectUserConnection
 };
 

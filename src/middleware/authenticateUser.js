@@ -203,14 +203,6 @@ const requireUserAuthentication = async ({ email, client, channel, onDeny }) => 
     return null;
   }
 
-  // Success: return userId with a subtle welcome back message (optional)
-  if (client && channel) {
-    await client.chat.postMessage({
-      channel,
-      text: `✅ Welcome back! Processing your request...`,
-    });
-  }
-
   return user.userId;
 };
 

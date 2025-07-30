@@ -68,7 +68,7 @@ PIPEDREAM_CLIENT_SECRET=your-actual-client-secret-from-step-1
 
 2. **Test in Slack**:
    ```
-   @SmartBot connect pipedream
+   @Kroolo AI connect pipedream
    ```
 
 3. **Click the "Connect to Pipedream" button**

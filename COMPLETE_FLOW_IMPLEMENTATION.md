@@ -77,7 +77,7 @@ Based on your request, I have implemented the complete flow you described:
 
 ### **Step 1: User Queries in Slack**
 ```
-User: @SmartBot search for documents
+User: @Kroolo AI search for documents
 ```
 
 **What Happens:**
@@ -87,7 +87,7 @@ User: @SmartBot search for documents
 
 ### **Step 2: User Connects Tools**
 ```
-User: @SmartBot connect google drive
+User: @Kroolo AI connect google drive
 ```
 
 **What Happens:**
@@ -185,10 +185,10 @@ node test-database-integration.js
 npm start
 
 # In Slack:
-# 1. @SmartBot search for documents
-# 2. @SmartBot connect google drive  
+# 1. @Kroolo AI search for documents
+# 2. @Kroolo AI connect google drive  
 # 3. Complete OAuth flow
-# 4. @SmartBot search for documents (now uses real account ID)
+# 4. @Kroolo AI search for documents (now uses real account ID)
 ```
 
 ## 📈 Benefits of This Implementation
