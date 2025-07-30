@@ -273,41 +273,41 @@ app.event('app_mention', async ({ event, client, logger }) => {
       return;
     }
 
-    // Handle regular Enterprise Search API responses
-  // Handle conversational responses FIRST
-if (result.type === 'conversational' || result.message) {
-  await client.chat.postMessage({
-    channel: event.channel,
-    text: result.message
-  });
-  return;
-}
+          // Handle regular Enterprise Search API responses
+        // Handle conversational responses FIRST
+      if (result.type === 'conversational' || result.message) {
+        await client.chat.postMessage({
+          channel: event.channel,
+          text: result.message
+        });
+        return;
+      }
 
-// Handle SlackHandler responses (blocks format)
-if (result.blocks) {
-  await client.chat.postMessage({
-    channel: event.channel,
-    blocks: result.blocks
-  });
-  return;
-}
+      // Handle SlackHandler responses (blocks format)
+      if (result.blocks) {
+        await client.chat.postMessage({
+          channel: event.channel,
+          blocks: result.blocks
+        });
+        return;
+      }
 
-// Handle regular Enterprise Search API responses
-if (result.data) {
-  const formattedResponse = formatResponse(result.data, result.apiUsed);
-  await client.chat.postMessage({
-    channel: event.channel,
-    text: `Search results for your query`,
-    blocks: formattedResponse
-  });
-  return;
-}
+      // Handle regular Enterprise Search API responses
+    if (result.data) {
+      const formattedResponse = formatResponse(result.data, result.apiUsed);
+      await client.chat.postMessage({
+        channel: event.channel,
+        text: `Search results for your query`,
+        blocks: formattedResponse
+      });
+      return;
+    }
 
-// Fallback for unexpected response structure
-await client.chat.postMessage({
-  channel: event.channel,
-  text: "I processed your request, but couldn't format the response properly."
-});
+    // Fallback for unexpected response structure
+    await client.chat.postMessage({
+      channel: event.channel,
+      text: "I processed your request, but couldn't format the response properly."
+    });
 
 
   } catch (error) {
@@ -318,6 +318,290 @@ await client.chat.postMessage({
     });
   }
 });
+
+// Add this right after your app.event('app_mention') handler (around line 200)
+
+// SLASH COMMANDS - Add these handlers
+console.log('🔧 Setting up slash commands...');
+
+// /help command
+app.command('/help', async ({ command, ack, respond }) => {
+    await ack();
+    
+    const helpMessage = {
+        text: "🤖 KROOLO AI Assistant - Available Commands",
+        blocks: [
+            {
+                type: "header",
+                text: {
+                    type: "plain_text",
+                    text: "🤖 KROOLO AI Assistant"
+                }
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: "*Two Ways to Interact:*"
+                }
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: "🚀 *Quick Commands* (Slash Commands)\n⚡ Fast and direct - use the commands below\n\n🧠 *Natural Language* (AI-Powered)\n💬 Just mention `@KROOLO AI` and ask naturally!\n• \"@KROOLO AI connect me to Gmail\"\n• \"@KROOLO AI search for project reports\"\n• \"@KROOLO AI what tools am I connected to?\"\n• \"@KROOLO AI help me find meeting notes from last week\""
+                }
+            },
+            {
+                type: "divider"
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: "*⚡ Quick Slash Commands:*"
+                }
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: "*Connection Commands:*\n• `/connect` - Show all available tools to connect\n• `/connect <tool>` - Connect to a specific tool\n  Example: `/connect gmail` or `/connect google_drive`\n• `/disconnect <tool>` - Disconnect from a tool\n  Example: `/disconnect jira`\n• `/status` - Show all your connections\n• `/status <tool>` - Check specific tool status"
+                }
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: "*Search Commands:*\n• `/search <query>` - Search documents across connected tools\n  Example: `/search project reports` or `/search meeting notes`"
+                }
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: "*🔧 Available Tools:*\nGmail, Google Drive, Slack, Pipedream, Dropbox, Jira, Confluence, Microsoft Teams, SharePoint, Document 360, GitHub, Notion, Airtable, Zendesk"
+                }
+            },
+            {
+                type: "divider"
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: "*💡 Pro Tips:*\n• Use slash commands for quick actions\n• Use `@KROOLO AI` for complex queries or when you're not sure of the exact command\n• The AI understands context - ask follow-up questions!\n• Try: \"@KROOLO AI I want to search my emails for budget information\""
+                }
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: "*Need help?* \n🤖 Mention `@KROOLO AI` and ask me anything!\n📋 Use `/help` to see this menu again"
+                }
+            }
+        ]
+    };
+    
+    await respond(helpMessage);
+});
+
+// /connect command
+app.command('/connect', async ({ command, ack, respond, client }) => {
+    await ack();
+    
+    try {
+        // Get user info
+        let userInfo = null;
+        try {
+            userInfo = await client.users.info({ user: command.user_id });
+        } catch (error) {
+            console.log('⚠️ Could not get user info for slash command:', error.message);
+        }
+
+        const userContext = {
+            slackUserId: command.user_id,
+            slackEmail: userInfo?.user?.profile?.email || null
+        };
+        
+        const toolName = command.text.trim().toLowerCase();
+        
+        let result;
+        if (!toolName) {
+            // Show all available tools - use existing handler
+            result = await queryHandler.processSlashCommand('connect', '', userContext);
+        } else {
+            // Connect to specific tool
+            const validTools = [
+                'gmail', 'google_drive', 'slack', 'pipedream', 'dropbox', 'jira',
+                'confluence', 'microsoft_teams', 'microsoft_sharepoint', 'document_360',
+                'github', 'notion', 'airtable', 'zendesk'
+            ];
+            
+            if (!validTools.includes(toolName)) {
+                await respond({
+                    text: `❌ Unknown tool: "${toolName}"\n\nAvailable tools: ${validTools.join(', ')}\n\nUse \`/connect\` to see all tools or \`/help\` for more information.`
+                });
+                return;
+            }
+            
+            result = await queryHandler.processSlashCommand('connect', toolName, userContext);
+        }
+        
+        // Format and send response
+        if (result.error) {
+            await respond(`❌ ${result.error}`);
+        } else if (result.attachments) {
+            await respond({
+                text: result.text || 'Connection interface ready:',
+                attachments: result.attachments
+            });
+        } else if (result.blocks) {
+            await respond({ blocks: result.blocks });
+        } else {
+            await respond(result.message || result.text || 'Connection process started.');
+        }
+        
+    } catch (error) {
+        await respond({
+            text: `❌ Connection failed: ${error.message}\n\nTry \`/help\` for usage examples.`
+        });
+    }
+});
+
+// /disconnect command
+app.command('/disconnect', async ({ command, ack, respond, client }) => {
+    await ack();
+    
+    try {
+        const toolName = command.text.trim().toLowerCase();
+        
+        if (!toolName) {
+            await respond({
+                text: "❌ Please specify a tool to disconnect.\n\n*Usage:* `/disconnect <tool>`\n*Example:* `/disconnect gmail`\n\nUse `/status` to see your connected tools."
+            });
+            return;
+        }
+        
+        // Get user info
+        let userInfo = null;
+        try {
+            userInfo = await client.users.info({ user: command.user_id });
+        } catch (error) {
+            console.log('⚠️ Could not get user info for disconnect command:', error.message);
+        }
+
+        const userContext = {
+            slackUserId: command.user_id,
+            slackEmail: userInfo?.user?.profile?.email || null
+        };
+        
+        const result = await queryHandler.processSlashCommand('disconnect', toolName, userContext);
+        
+        if (result.error) {
+            await respond(`❌ ${result.error}`);
+        } else {
+            await respond(result.message || result.text || `✅ Disconnected from ${toolName}`);
+        }
+        
+    } catch (error) {
+        await respond({
+            text: `❌ Disconnection failed: ${error.message}\n\nUse \`/status\` to check your connections or \`/help\` for more information.`
+        });
+    }
+});
+
+// /status command
+app.command('/status', async ({ command, ack, respond, client }) => {
+    await ack();
+    
+    try {
+        // Get user info
+        let userInfo = null;
+        try {
+            userInfo = await client.users.info({ user: command.user_id });
+        } catch (error) {
+            console.log('⚠️ Could not get user info for status command:', error.message);
+        }
+
+        const userContext = {
+            slackUserId: command.user_id,
+            slackEmail: userInfo?.user?.profile?.email || null
+        };
+        
+        const toolName = command.text.trim().toLowerCase();
+        const result = await queryHandler.processSlashCommand('status', toolName, userContext);
+        
+        if (result.error) {
+            await respond(`❌ ${result.error}`);
+        } else if (result.attachments) {
+            await respond({
+                text: result.text || 'Connection Status:',
+                attachments: result.attachments
+            });
+        } else if (result.blocks) {
+            await respond({ blocks: result.blocks });
+        } else {
+            await respond(result.message || result.text || 'Status retrieved.');
+        }
+        
+    } catch (error) {
+        await respond({
+            text: `❌ Status check failed: ${error.message}\n\nTry \`/help\` for usage examples.`
+        });
+    }
+});
+
+// /search command
+app.command('/search', async ({ command, ack, respond, client }) => {
+    await ack();
+    
+    try {
+        const searchQuery = command.text.trim();
+        
+        if (!searchQuery) {
+            await respond({
+                text: "❌ Please provide a search query.\n\n*Usage:* `/search <your query>`\n*Examples:*\n• `/search project reports`\n• `/search meeting notes from last week`\n• `/search budget spreadsheet`\n\nMake sure you have connected tools first using `/connect`."
+            });
+            return;
+        }
+        
+        // Get user info
+        let userInfo = null;
+        try {
+            userInfo = await client.users.info({ user: command.user_id });
+        } catch (error) {
+            console.log('⚠️ Could not get user info for search command:', error.message);
+        }
+
+        const userContext = {
+            slackUserId: command.user_id,
+            slackEmail: userInfo?.user?.profile?.email || null
+        };
+        
+        const result = await queryHandler.processSlashCommand('search', searchQuery, userContext);
+        
+        if (result.error) {
+            await respond(`❌ ${result.error}`);
+        } else if (result.data) {
+            // Format search results
+            const formattedResponse = formatResponse(result.data, result.apiUsed);
+            await respond({
+                text: `🔍 Search results for: "${searchQuery}"`,
+                blocks: formattedResponse
+            });
+        } else {
+            await respond(result.message || result.text || 'Search completed.');
+        }
+        
+    } catch (error) {
+        await respond({
+            text: `❌ Search failed: ${error.message}\n\nMake sure you have connected tools using \`/connect\` or try \`/help\` for more information.`
+        });
+    }
+});
+
+console.log('✅ Slash commands set up successfully');
 
 
 // Handle interactive components (button clicks)

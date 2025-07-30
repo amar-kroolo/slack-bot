@@ -132,13 +132,6 @@ class QueryHandler {
             userContext?.slackEmail
         );
 
-        case 'createMultipleConnectTokens':        // “connect to drive and jira”
-          console.log('🔗 Connecting multiple tools:', nlpResult.parameters.tools);
-          return await this.handleMultipleToolConnect(
-            nlpResult.parameters.tools,
-            slackUserId,
-            userContext?.slackEmail
-          );
 
         // In the switch statement for API-related actions, modify them to return the legacy format:
 
@@ -222,6 +215,81 @@ class QueryHandler {
       };
     }
   }
+
+  // Add this method to your QueryHandler class in src/handlers/queryHandler.js
+
+async processSlashCommand(commandName, commandText, userContext) {
+    try {
+        console.log(`🔧 Processing slash command: /${commandName} ${commandText}`);
+        
+        // Direct command handling without NLP
+        switch (commandName) {
+            case 'connect':
+                if (!commandText.trim()) {
+                    // Show all tools
+                    const connectToolsHandler = require('./connectToolsHandler');
+                    return await connectToolsHandler.handleConnectToolsCommand(
+                        userContext.slackUserId,
+                        userContext.slackEmail
+                    );
+                } else {
+                    // Connect specific tool
+                    const tool = commandText.trim().toLowerCase();
+                    const connectToolsHandler = require('./connectToolsHandler');
+                    return await connectToolsHandler.handleDirectToolConnection(
+                        userContext.slackUserId,
+                        tool,
+                        userContext.slackEmail
+                    );
+                }
+
+            case 'search':
+                const apiService = require('../services/apiService');
+                const searchParams = {
+                    query: commandText.trim(),
+                    apps: ['gmail', 'google_drive', 'slack', 'dropbox', 'jira', 'zendesk']
+                };
+                
+                return await apiService.callAPI(
+                    'search',
+                    searchParams,
+                    userContext.slackUserId,
+                    userContext.slackEmail
+                );
+
+            case 'status':
+                const tool = commandText.trim().toLowerCase();
+                if (tool === 'pipedream') {
+                    const pipedreamHandler = require('./pipedreamHandler');
+                    return await pipedreamHandler.handleStatusCommand(userContext.slackUserId);
+                } else if (tool === 'slack') {
+                    const slackHandler = require('./slackHandler');
+                    return await slackHandler.handleStatusCommand(userContext.slackUserId);
+                } else {
+                    // All connections status or specific tool
+                    const connectToolsHandler = require('./connectToolsHandler');
+                    return await connectToolsHandler.handleShowConnections(userContext.slackUserId);
+                }
+
+            case 'disconnect':
+                const toolToDisconnect = commandText.trim().toLowerCase();
+                const connectToolsHandler = require('./connectToolsHandler');
+                return await connectToolsHandler.handleDisconnectTool(
+                    userContext.slackUserId,
+                    toolToDisconnect,
+                    userContext.slackEmail
+                );
+
+            default:
+                return { error: `Unknown command: /${commandName}` };
+        }
+        
+    } catch (error) {
+        console.error('❌ Error processing slash command:', error);
+        return { error: `Failed to process /${commandName}: ${error.message}` };
+    }
+}
+
   async handleMultipleToolConnect(tools = [], slackUserId, slackEmail) {
   if (!Array.isArray(tools) || tools.length === 0) {
     return { error: 'No tools recognised to connect.' };
