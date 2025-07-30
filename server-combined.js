@@ -120,24 +120,51 @@ app.event('app_mention', async ({ event, client, say, logger }) => {
 
     // Process query through handler
     const result = await queryHandler.processQuery(query, userContext);
-    
+
+    console.log('🔍 Query result received:', {
+      hasError: !!result.error,
+      hasMessage: !!result.message,
+      hasBlocks: !!result.blocks,
+      hasAttachments: !!result.attachments,
+      hasText: !!result.text,
+      hasData: !!result.data,
+      responseType: result.response_type,
+      resultKeys: Object.keys(result)
+    });
+
     if (result.error) {
+      console.log('❌ Sending error response:', result.error);
       await say(`❌ Error: ${result.error}`);
       return;
     }
 
     // Send appropriate response based on result type
     if (result.message || result.type === 'conversational') {
+      console.log('📝 Sending conversational message');
       await say(result.message);
     } else if (result.blocks) {
+      console.log('🧱 Sending blocks response');
       await say({ blocks: result.blocks });
+    } else if (result.attachments) {
+      // Handle legacy attachment format (used by connection status)
+      console.log('📎 Sending attachments response');
+      await say({
+        text: result.text || 'Here are your results:',
+        attachments: result.attachments
+      });
+    } else if (result.text && result.response_type === 'ephemeral') {
+      // Handle ephemeral responses
+      console.log('👻 Sending ephemeral text response');
+      await say(result.text);
     } else if (result.data) {
+      console.log('📊 Sending formatted data response');
       const formattedResponse = formatResponse(result.data, result.apiUsed);
       await say({
         text: `Search results for your query`,
         blocks: formattedResponse
       });
     } else {
+      console.log('❓ Sending fallback response - unrecognized result format');
       await say("I processed your request but couldn't format the response properly.");
     }
   } catch (error) {
@@ -209,24 +236,51 @@ app.message(async ({ message, client, say, logger }) => {
     }
 
     const result = await queryHandler.processQuery(query, userContext);
-    
+
+    console.log('🔍 Message query result received:', {
+      hasError: !!result.error,
+      hasMessage: !!result.message,
+      hasBlocks: !!result.blocks,
+      hasAttachments: !!result.attachments,
+      hasText: !!result.text,
+      hasData: !!result.data,
+      responseType: result.response_type,
+      resultKeys: Object.keys(result)
+    });
+
     if (result.error) {
+      console.log('❌ Sending error response:', result.error);
       await say(`❌ Error: ${result.error}`);
       return;
     }
 
     // Send appropriate response based on result type
     if (result.message || result.type === 'conversational') {
+      console.log('📝 Sending conversational message');
       await say(result.message);
     } else if (result.blocks) {
+      console.log('🧱 Sending blocks response');
       await say({ blocks: result.blocks });
+    } else if (result.attachments) {
+      // Handle legacy attachment format (used by connection status)
+      console.log('📎 Sending attachments response');
+      await say({
+        text: result.text || 'Here are your results:',
+        attachments: result.attachments
+      });
+    } else if (result.text && result.response_type === 'ephemeral') {
+      // Handle ephemeral responses
+      console.log('👻 Sending ephemeral text response');
+      await say(result.text);
     } else if (result.data) {
+      console.log('📊 Sending formatted data response');
       const formattedResponse = formatResponse(result.data, result.apiUsed);
       await say({
         text: `Search results for your query`,
         blocks: formattedResponse
       });
     } else {
+      console.log('❓ Sending fallback response - unrecognized result format');
       await say("I processed your request but couldn't format the response properly.");
     }
   } catch (error) {
