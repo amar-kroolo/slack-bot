@@ -1,8 +1,7 @@
-const UserModel = require("../models/User");
+const UserModel = require("../models/User.js");
 
 const requireUserAuthentication = async ({ email, client, channel, onDeny }) => {
   const signupUrl = "https://app.kroolo.com/signup";
-
 
   if (!email) {
     if (client && channel) {
@@ -48,7 +47,6 @@ const requireUserAuthentication = async ({ email, client, channel, onDeny }) => 
                 url: signupUrl,
                 style: "primary",
               },
-             
             ],
           },
           {
@@ -74,7 +72,7 @@ const requireUserAuthentication = async ({ email, client, channel, onDeny }) => 
   if (!user) {
     // Check if user exists but is inactive
     const inactiveUser = await UserModel.findOne({ email: email.trim(), status: "INACTIVE" });
-    
+
     if (client && channel) {
       if (inactiveUser) {
         // User exists but is inactive
@@ -120,7 +118,6 @@ const requireUserAuthentication = async ({ email, client, channel, onDeny }) => 
                   url: signupUrl,
                   style: "primary",
                 },
-               
               ],
             },
             {
