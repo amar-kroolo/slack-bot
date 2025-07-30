@@ -8,8 +8,7 @@ const { formatResponse } = require('./src/utils/formatter');
 // Load environment variables
 dotenv.config();
 
-// Determine deployment mode
-const isProduction = process.env.NODE_ENV === 'production';
+// Server configuration
 const PORT = process.env.PORT || 3000;
 
 // Initialize Express receiver for Slack with more detailed logging
@@ -20,7 +19,7 @@ const receiver = new ExpressReceiver({
     {
       path: '/health',
       method: ['GET'],
-      handler: (req, res) => {
+      handler: (_req, res) => {
         res.send({
           status: 'ok',
           timestamp: new Date().toISOString(),
@@ -40,7 +39,7 @@ expressApp.use(express.json());
 expressApp.use(express.urlencoded({ extended: true }));
 
 // Add request logging middleware
-expressApp.use((req, res, next) => {
+expressApp.use((req, _res, next) => {
   console.log(`📥 [${new Date().toISOString()}] ${req.method} ${req.path}`);
   if (req.body && req.body.type) {
     console.log('   Event Type:', req.body.type);
@@ -152,7 +151,7 @@ const authRoutes = require('./src/routes/auth');
 expressApp.use('/', authRoutes);
 
 // Health check endpoint
-expressApp.get('/health', (req, res) => {
+expressApp.get('/health', (_req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
@@ -237,7 +236,7 @@ app.message(async ({ message, client, say, logger }) => {
 });
 
 // Handle link_shared events
-app.event('link_shared', async ({ event, client, logger }) => {
+app.event('link_shared', async ({ event, logger }) => {
   logger.info('Link shared event received:', event);
   try {
     // Process shared links here
@@ -247,16 +246,134 @@ app.event('link_shared', async ({ event, client, logger }) => {
   }
 });
 
+// Handle button clicks and interactive components
+app.action('connect_tool', async ({ ack, body, client, logger }) => {
+  await ack();
+  logger.info('Connect tool button clicked:', body);
+
+  try {
+    const userId = body.user.id;
+    const userInfo = await client.users.info({ user: userId });
+
+    // Get user context
+    const userContext = {
+      slackUserId: userId,
+      slackEmail: userInfo?.user?.profile?.email,
+      slackName: userInfo?.user?.name,
+      slackRealName: userInfo?.user?.real_name
+    };
+
+    // Import connect tools handler
+    const connectToolsHandler = require('./src/handlers/connectToolsHandler');
+
+    // Handle the connect tools request
+    const result = await connectToolsHandler.handleConnectToolsCommand(userId, userContext);
+
+    if (result.error) {
+      await client.chat.postEphemeral({
+        channel: body.channel.id,
+        user: userId,
+        text: `❌ Error: ${result.error}`
+      });
+      return;
+    }
+
+    // Send the response
+    if (result.attachments) {
+      await client.chat.postEphemeral({
+        channel: body.channel.id,
+        user: userId,
+        text: result.text,
+        attachments: result.attachments
+      });
+    } else if (result.blocks) {
+      await client.chat.postEphemeral({
+        channel: body.channel.id,
+        user: userId,
+        blocks: result.blocks
+      });
+    } else {
+      await client.chat.postEphemeral({
+        channel: body.channel.id,
+        user: userId,
+        text: result.message || result.text || 'Tool connection interface loaded.'
+      });
+    }
+  } catch (error) {
+    logger.error('Error handling connect_tool action:', error);
+    await client.chat.postEphemeral({
+      channel: body.channel.id,
+      user: body.user.id,
+      text: `❌ Sorry, I encountered an error: ${error.message}`
+    });
+  }
+});
+
+// Handle open document button clicks
+app.action(/^open_.*/, async ({ ack, body, logger }) => {
+  await ack();
+  logger.info('Open document button clicked:', body.actions[0].action_id);
+
+  // The button already has a URL, so Slack will handle opening it
+  // This handler just acknowledges the action
+});
+
 // Import routes
 const toolsRoutes = require('./src/routes/tools');
 
 // Set up web routes
 expressApp.use('/api/tools', toolsRoutes);
 
+// Error handling for uncaught exceptions
+process.on('uncaughtException', (error) => {
+  console.error('❌ Uncaught Exception:', error);
+  console.error('Stack trace:', error.stack);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+  console.error('Stack trace:', reason?.stack);
+  process.exit(1);
+});
+
+// Graceful shutdown handling
+let server;
+
+const gracefulShutdown = (signal) => {
+  console.log(`\n🛑 Received ${signal}. Starting graceful shutdown...`);
+
+  if (server) {
+    server.close(() => {
+      console.log('✅ HTTP server closed');
+
+      // Close database connection if exists
+      if (databaseConfig && databaseConfig.close) {
+        databaseConfig.close().then(() => {
+          console.log('✅ Database connection closed');
+          process.exit(0);
+        }).catch((err) => {
+          console.error('❌ Error closing database:', err);
+          process.exit(1);
+        });
+      } else {
+        process.exit(0);
+      }
+    });
+  } else {
+    process.exit(0);
+  }
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
 (async () => {
   try {
-    console.log('🚀 Starting Production Server...');
-    
+    console.log('🚀 Starting Unified Production Server...');
+    console.log('🌐 Mode: HTTP Events API (Production Ready)');
+    console.log('🔧 Socket Mode: Disabled');
+
     // Initialize database
     console.log('🔄 Initializing database connection...');
     try {
@@ -267,27 +384,37 @@ expressApp.use('/api/tools', toolsRoutes);
       console.warn('⚠️ Continuing without database - using in-memory storage');
     }
 
-    // Start both the Slack app and HTTP server
+    // Start the Slack app (this initializes the ExpressReceiver)
     await app.start();
     console.log('✅ Slack app started successfully');
     console.log('🔍 Verifying Slack configuration:');
     console.log(`   Bot Token: ${process.env.SLACK_BOT_TOKEN ? '✅ Set' : '❌ Missing'}`);
     console.log(`   Signing Secret: ${process.env.SLACK_SIGNING_SECRET ? '✅ Set' : '❌ Missing'}`);
-    
-    expressApp.listen(PORT, () => {
-      console.log(`\n⚡️ Server is running on port ${PORT}`);
-      console.log('🌐 HTTP Mode - Ready for webhook requests');
+
+    // Start the HTTP server
+    server = expressApp.listen(PORT, () => {
+      console.log(`\n⚡️ Unified Server is running on port ${PORT}`);
+      console.log('🌐 HTTP Events API - Ready for webhook requests');
       console.log(`📋 Webhook URL: https://enterprise-search-slack-bot.onrender.com/slack/events`);
       console.log('\n🎯 Subscribed to events:');
       console.log('   • app_mention - For direct bot mentions');
       console.log('   • message.im - For direct messages');
       console.log('   • message.channels - For channel messages');
       console.log('   • link_shared - For shared links');
-      console.log('\n✅ Slack bot is ready to respond to mentions and messages');
+      console.log('\n🔘 Interactive components:');
+      console.log('   • connect_tool - Tool connection buttons');
+      console.log('   • open_* - Document open buttons');
+      console.log('\n🛣️  HTTP Routes:');
+      console.log('   • GET  /health - Health check');
+      console.log('   • POST /slack/events - Slack events webhook');
+      console.log('   • GET  /auth/* - OAuth callback routes');
+      console.log('   • *    /api/tools/* - Tools API endpoints');
+      console.log('\n✅ Unified Slack bot is ready to respond to mentions, messages, and interactions');
     });
 
   } catch (error) {
-    console.error('❌ Failed to start the server:', error);
+    console.error('❌ Failed to start the unified server:', error);
+    console.error('Stack trace:', error.stack);
     process.exit(1);
   }
 })();
