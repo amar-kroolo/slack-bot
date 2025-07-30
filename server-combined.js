@@ -149,10 +149,7 @@ app.event('app_mention', async ({ event, client, logger }) => {
     }
 
     // Show typing indicator
-    await client.chat.postMessage({
-      channel: event.channel,
-      text: "🔍 Processing your query..."
-    });
+    
 
     // Get user info to extract email for API calls
     console.log('🔍 STEP 1: Attempting to extract Slack user email...');
@@ -366,14 +363,14 @@ app.command('/help', async ({ command, ack, respond }) => {
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: "*Connection Commands:*\n• `/connect` - Show all available tools to connect\n• `/connect <tool>` - Connect to a specific tool\n  Example: `/connect gmail` or `/connect google_drive`\n• `/disconnect <tool>` - Disconnect from a tool\n  Example: `/disconnect jira`\n• `/status` - Show all your connections\n• `/status <tool>` - Check specific tool status"
+                    text: "*Connection Commands:*\n• `/connect` - Show all available tools to connect\n• `/connect <tool>` - Connect to a specific tool\n  Example: `/connect gmail` or `/connect google_drive`\n• `/disconnect <tool>` - Disconnect from a tool\n  Example: `/disconnect jira`\n• `/tool_status` - Show all your connections\n• `/tool_status <tool>` - Check specific tool status"
                 }
             },
             {
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: "*Search Commands:*\n• `/search <query>` - Search documents across connected tools\n  Example: `/search project reports` or `/search meeting notes`"
+                    text: "*Search Commands:*\n• `/find <query>` - Search documents across connected tools\n  Example: `/find project reports`"
                 }
             },
             {
@@ -478,7 +475,7 @@ app.command('/disconnect', async ({ command, ack, respond, client }) => {
         
         if (!toolName) {
             await respond({
-                text: "❌ Please specify a tool to disconnect.\n\n*Usage:* `/disconnect <tool>`\n*Example:* `/disconnect gmail`\n\nUse `/status` to see your connected tools."
+                text: "❌ Please specify a tool to disconnect.\n\n*Usage:* `/disconnect <tool>`\n*Example:* `/disconnect gmail`\n\nUse `/tool_status` to see your connected tools."
             });
             return;
         }
@@ -506,13 +503,13 @@ app.command('/disconnect', async ({ command, ack, respond, client }) => {
         
     } catch (error) {
         await respond({
-            text: `❌ Disconnection failed: ${error.message}\n\nUse \`/status\` to check your connections or \`/help\` for more information.`
+            text: `❌ Disconnection failed: ${error.message}\n\nUse \`/tool_status\` to check your connections or \`/help\` for more information.`
         });
     }
 });
 
 // /status command
-app.command('/status', async ({ command, ack, respond, client }) => {
+app.command('/tool_status', async ({ command, ack, respond, client }) => {
     await ack();
     
     try {
@@ -553,7 +550,7 @@ app.command('/status', async ({ command, ack, respond, client }) => {
 });
 
 // /search command
-app.command('/search', async ({ command, ack, respond, client }) => {
+app.command('/find', async ({ command, ack, respond, client }) => {
     await ack();
     
     try {
@@ -561,7 +558,7 @@ app.command('/search', async ({ command, ack, respond, client }) => {
         
         if (!searchQuery) {
             await respond({
-                text: "❌ Please provide a search query.\n\n*Usage:* `/search <your query>`\n*Examples:*\n• `/search project reports`\n• `/search meeting notes from last week`\n• `/search budget spreadsheet`\n\nMake sure you have connected tools first using `/connect`."
+                text: "❌ Please provide a search query.\n\n*Usage:* `/find <your query>`\n*Examples:*\n• `/find project reports`\n• `/find meeting notes from last week`\n• `/find budget spreadsheet`\n\nMake sure you have connected tools first using `/connect`."
             });
             return;
         }
@@ -681,109 +678,113 @@ app.action('connect_tool', async ({ ack, body, client, logger }) => {
 });
 
 // Handle direct messages
+// Handle direct messages AND channel mentions (single handler)
 app.message(async ({ message, client, logger }) => {
-  // Only respond to direct messages (not channel messages)
-  if (message.channel_type !== 'im') return;
-  
-  try {
-    logger.info('Direct message received:', message.text);
-    
-    const query = message.text.trim();
-    
-    if (!query) return;
-
-    // Show typing indicator
-    await client.chat.postMessage({
-      channel: message.channel,
-      text: "🔍 Processing your query..."
-    });
-
-    // Get user info to extract email for API calls
-    let userInfo = null;
     try {
-      userInfo = await client.users.info({ user: message.user });
-      console.log('👤 DM User info retrieved:', {
-        id: userInfo?.user?.id,
-        email: userInfo?.user?.profile?.email || 'No email',
-        name: userInfo?.user?.name || 'No name'
-      });
+        // Ignore bot messages and special message subtypes
+        if (message.bot_id || message.subtype) {
+            return;
+        }
+
+        logger.info(`Message received in ${message.channel_type}:`, message.text);
+        
+        // For channel messages, only process if the bot is mentioned
+        if (message.channel_type === 'channel' && !message.text.includes(`<@${process.env.SLACK_BOT_USER_ID}>`)) {
+            return;
+        }
+        
+        // For DMs, process all messages
+        // For channels, only process mentions
+
+        // Show typing indicator
+        await client.chat.postMessage({
+            channel: message.channel,
+            text: "🔍 Processing your query..."
+        });
+
+        // Get user info to extract email for API calls
+        let userInfo = null;
+        try {
+            userInfo = await client.users.info({ user: message.user });
+        } catch (error) {
+            console.log('⚠️ Could not get user info:', error.message);
+        }
+
+        const userId = await requireUserAuthentication({
+            email: userInfo?.user?.profile?.email,
+            client,
+            channel: message.channel,
+        });
+
+        if (!userId) {
+            // Access denied message sent by middleware
+            return;
+        }
+
+        // Process the query with user context including email
+        const userContext = {
+            slackUserId: message.user,
+            slackEmail: userInfo?.user?.profile?.email || null,
+            slackName: userInfo?.user?.name || null,
+            slackRealName: userInfo?.user?.real_name || null
+        };
+
+        // Remove bot mention from the message for channel messages
+        let query = message.text;
+        if (message.channel_type === 'channel') {
+            query = query.replace(/<@\w+>/g, '').trim();
+        }
+
+        const result = await queryHandler.processQuery(query, userContext);
+
+        if (result.error) {
+            await client.chat.postMessage({
+                channel: message.channel,
+                text: `❌ Error: ${result.error}`
+            });
+            return;
+        }
+
+        // Handle different response types
+        if (result.type === 'conversational' || result.message) {
+            await client.chat.postMessage({
+                channel: message.channel,
+                text: result.message
+            });
+        } else if (result.blocks) {
+            await client.chat.postMessage({
+                channel: message.channel,
+                blocks: result.blocks
+            });
+        } else if (result.attachments) {
+            await client.chat.postMessage({
+                channel: message.channel,
+                text: result.text || 'Here are your results:',
+                attachments: result.attachments
+            });
+        } else if (result.data) {
+            const formattedResponse = formatResponse(result.data, result.apiUsed);
+            await client.chat.postMessage({
+                channel: message.channel,
+                text: `Search results for your query`,
+                blocks: formattedResponse
+            });
+        } else {
+            await client.chat.postMessage({
+                channel: message.channel,
+                text: "I processed your request, but couldn't format the response properly."
+            });
+        }
+
     } catch (error) {
-      console.log('⚠️ Could not get DM user info:', error.message);
+        logger.error('Error handling message:', error);
+        await client.chat.postMessage({
+            channel: message.channel,
+            text: `❌ Sorry, I encountered an error: ${error.message}`
+        });
     }
-    const userId = await requireUserAuthentication({
-      email: userInfo?.user?.profile?.email,
-      client,
-      channel: message.channel,
-    });
-
-    console.log("userId with Mongodb->",userId)
-    if (!userId) {
-      // Access denied message sent by middleware
-      return;
-    }
-    // Process the query with user context including email
-    const userContext = {
-      slackUserId: message.user,
-      slackEmail: userInfo?.user?.profile?.email || null,
-      slackName: userInfo?.user?.name || null,
-      slackRealName: userInfo?.user?.real_name || null
-    };
-
-    const result = await queryHandler.processQuery(query, userContext);
-    
-    if (result.error) {
-      await client.chat.postMessage({
-        channel: message.channel,
-        text: `❌ Error: ${result.error}`
-      });
-      return;
-    }
-
-    // Format and send the response
-  // Handle conversational responses FIRST
-if (result.type === 'conversational' || result.message) {
-  await client.chat.postMessage({
-    channel: message.channel,
-    text: result.message
-  });
-  return;
-}
-
-// Handle SlackHandler responses (blocks format)
-if (result.blocks) {
-  await client.chat.postMessage({
-    channel: message.channel,
-    blocks: result.blocks
-  });
-  return;
-}
-
-// Handle regular Enterprise Search API responses
-if (result.data) {
-  const formattedResponse = formatResponse(result.data, result.apiUsed);
-  await client.chat.postMessage({
-    channel: message.channel,
-    text: `Search results for your query`,
-    blocks: formattedResponse
-  });
-  return;
-}
-
-// Fallback for unexpected response structure
-await client.chat.postMessage({
-  channel: message.channel,
-  text: "I processed your request, but couldn't format the response properly."
 });
 
-
-  } catch (error) {
-    logger.error('Error handling direct message:', error);
-    await client.chat.postMessage({
-      channel: message.channel,
-      text: `❌ Sorry, I encountered an error: ${error.message}`
-    });
-  }
-});
 
 // Add error handlers
 app.error(async (error) => {
@@ -827,101 +828,7 @@ expressApp.use((req, res) => {
 });
 
 // Handle messages (both DMs and channel messages)
-app.message(async ({ message, client, say, logger }) => {
-  try {
-    // Ignore bot messages and special message subtypes
-    if (message.bot_id || message.subtype) {
-      return;
-    }
-
-    logger.info(`Message received in ${message.channel_type}:`, message.text);
-    
-    // For channel messages, only process if the bot is mentioned
-    if (message.channel_type === 'channel' && !message.text.includes(`<@${client.botUserId}>`)) {
-      return;
-    }
-
-    // Get user info for authentication
-    const userInfo = await client.users.info({ user: message.user });
-    const userId = await requireUserAuthentication({
-      email: userInfo?.user?.profile?.email,
-      client,
-      channel: message.channel,
-    });
-
-    if (!userId) {
-      // Access denied message sent by middleware
-      return;
-    }
-
-    // Process the query with user context
-    const userContext = {
-      slackUserId: message.user,
-      slackEmail: userInfo?.user?.profile?.email,
-      slackName: userInfo?.user?.name,
-      slackRealName: userInfo?.user?.real_name
-    };
-
-    // Remove bot mention from the message for channel messages
-    let query = message.text;
-    if (message.channel_type === 'channel') {
-      query = query.replace(new RegExp(`<@${client.botUserId}>`, 'g'), '').trim();
-    }
-
-    const result = await queryHandler.processQuery(query, userContext);
-
-    console.log('🔍 Message query result received:', {
-      hasError: !!result.error,
-      hasMessage: !!result.message,
-      hasBlocks: !!result.blocks,
-      hasAttachments: !!result.attachments,
-      hasText: !!result.text,
-      hasData: !!result.data,
-      responseType: result.response_type,
-      resultKeys: Object.keys(result)
-    });
-
-    if (result.error) {
-      console.log('❌ Sending error response:', result.error);
-      await say(`❌ Error: ${result.error}`);
-      return;
-    }
-
-    // Send appropriate response based on result type
-    if (result.message || result.type === 'conversational') {
-      console.log('📝 Sending conversational message');
-      await say(result.message);
-    } else if (result.blocks) {
-      console.log('🧱 Sending blocks response');
-      await say({ blocks: result.blocks });
-    } else if (result.attachments) {
-      // Handle legacy attachment format (used by connection status)
-      console.log('📎 Sending attachments response');
-      await say({
-        text: result.text || 'Here are your results:',
-        attachments: result.attachments
-      });
-    } else if (result.text && result.response_type === 'ephemeral') {
-      // Handle ephemeral responses
-      console.log('👻 Sending ephemeral text response');
-      await say(result.text);
-    } else if (result.data) {
-      console.log('📊 Sending formatted data response');
-      const formattedResponse = formatResponse(result.data, result.apiUsed);
-      await say({
-        text: `Search results for your query`,
-        blocks: formattedResponse
-      });
-    } else {
-      console.log('❓ Sending fallback response - unrecognized result format');
-      await say("I processed your request but couldn't format the response properly.");
-    }
-  } catch (error) {
-    logger.error('Error handling message:', error);
-    await say(`❌ Sorry, I encountered an error: ${error.message}`);
-  }
-});
-
+ 
 // Handle link_shared events
 app.event('link_shared', async ({ event, logger }) => {
   logger.info('Link shared event received:', event);
