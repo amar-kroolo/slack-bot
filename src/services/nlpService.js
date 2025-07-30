@@ -19,7 +19,7 @@ class NlpService {
       trending_documents: 'getTrendingDocuments',
       dynamic_suggestions: 'getDynamicSuggestions',
       connect_tools: 'handleConnectToolsCommand',   // <-- new
-      connect_multiple: 'createMultipleConnectTokens', // <-- new
+    
       general: 'generalResponse'
     };
 
@@ -59,7 +59,6 @@ CORE FUNCTION: Analyze user queries and return structured JSON with intent, doma
 AVAILABLE INTENTS:
 - connect: User wants to connect a tool (e.g., "connect to gmail", "connect google drive")
 - connect_tools: user wants to see a list / UI card of all available tools (Example → "connect tools")
-- connect_multiple: user asked to connect several tools at once (Example → "connect to drive and jira")
 - disconnect: User wants to disconnect a tool (e.g., "disconnect jira", "remove slack connection")
 - status: User wants connection status (e.g., "show my connections", "pipedream status")
 - search: User wants to search documents (e.g., "find project reports", "search for contracts")
@@ -102,7 +101,7 @@ PARAMETER EXTRACTION RULES:
 EXAMPLES:
 "connect to gmail" → {"intent": "connect", "domain": "gmail", "parameters": {"tool": "gmail"}, "action": "createConnectToken", "confidence": 0.95}
 "search for project reports" → {"intent": "search", "domain": null, "parameters": {"query": "project reports", "apps": ["google_drive", "slack", "dropbox"]}, "action": "callSearchApi", "confidence": 0.9}
-"hello" → {"intent": "general", "domain": null, "parameters": {"message": "Hello! I can help you connect tools and search documents. What would you like to do?"}, "action": "generalResponse", "confidence": 1.0}
+"hello" → {"intent": "general", "domain": null, "parameters": {"message": "Hello! I can help you connect tools and search documents. What would you like to do?( or any relavant respone)"}, "action": "generalResponse", "confidence": 1.0}
 "connect tools" → {
   "intent": "connect_tools",
   "domain": null,
@@ -110,14 +109,7 @@ EXAMPLES:
   "action": "handleConnectToolsCommand",
   "confidence": 0.95
 }
-
-"connect to drive and jira" → {
-  "intent": "connect_multiple",
-  "domain": null,
-  "parameters": { "tools": ["google_drive", "jira"] },
-  "action": "createMultipleConnectTokens",
-  "confidence": 0.9
-}
+"connect to jira and slack" → {"intent": "general", "domain": null, "parameters": {"message": "please connect one tool at a time ( or any relevant response)"}, "action": "generalResponse", "confidence": 1.0}
 
 CRITICAL: Return ONLY the JSON object. No explanatory text, no code fences, no markdown formatting.`;
   }
