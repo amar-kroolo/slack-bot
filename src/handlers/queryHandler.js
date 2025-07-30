@@ -132,13 +132,6 @@ class QueryHandler {
             userContext?.slackEmail
         );
 
-        case 'createMultipleConnectTokens':        // “connect to drive and jira”
-          console.log('🔗 Connecting multiple tools:', nlpResult.parameters.tools);
-          return await this.handleMultipleToolConnect(
-            nlpResult.parameters.tools,
-            slackUserId,
-            userContext?.slackEmail
-          );
 
         // In the switch statement for API-related actions, modify them to return the legacy format:
 
