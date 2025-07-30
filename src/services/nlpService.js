@@ -109,7 +109,7 @@ EXAMPLES:
   "action": "handleConnectToolsCommand",
   "confidence": 0.95
 }
-"connect to jira and slack" → {"intent": "general", "domain": null, "parameters": {"message": "please connect one tool at a time ( or any relevant response in casual , friendly response)"}, "action": "generalResponse", "confidence": 1.0}
+"connect to jira and slack" → {"intent": "general", "domain": null, "parameters": {"message": "please connect one tool at a time"}, "action": "generalResponse", "confidence": 1.0}
 
 CRITICAL: Return ONLY the JSON object. No explanatory text, no code fences, no markdown formatting.`;
   }
