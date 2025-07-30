@@ -101,7 +101,7 @@ PARAMETER EXTRACTION RULES:
 EXAMPLES:
 "connect to gmail" → {"intent": "connect", "domain": "gmail", "parameters": {"tool": "gmail"}, "action": "createConnectToken", "confidence": 0.95}
 "search for project reports" → {"intent": "search", "domain": null, "parameters": {"query": "project reports", "apps": ["google_drive", "slack", "dropbox"]}, "action": "callSearchApi", "confidence": 0.9}
-"hello" → {"intent": "general", "domain": null, "parameters": {"message": "Hello! I can help you connect tools and search documents. What would you like to do?( or any relavant response in casual, friendly tone )"}, "action": "generalResponse", "confidence": 1.0}
+"hello" → {"intent": "general", "domain": null, "parameters": {"message": "Hello! I can help you connect tools and search documents. What would you like to do?"}, "action": "generalResponse", "confidence": 1.0}
 "connect tools" → {
   "intent": "connect_tools",
   "domain": null,
