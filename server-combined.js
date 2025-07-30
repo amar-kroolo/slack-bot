@@ -149,10 +149,7 @@ app.event('app_mention', async ({ event, client, logger }) => {
     }
 
     // Show typing indicator
-    await client.chat.postMessage({
-      channel: event.channel,
-      text: "🔍 Processing your query..."
-    });
+    
 
     // Get user info to extract email for API calls
     console.log('🔍 STEP 1: Attempting to extract Slack user email...');
