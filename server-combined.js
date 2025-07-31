@@ -394,6 +394,13 @@ app.command('/help', async ({ command, ack, respond }) => {
                 type: "section",
                 text: {
                     type: "mrkdwn",
+                    text: "*Other Commands:*\n• `/intro` - Learn about KROOLO AI and getting started\n• `/history` - View your recent searches\n• `/help` - Show this help menu"
+                }
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
                     text: "*Need help?* \n🤖 Mention `@KROOLO AI` and ask me anything!\n📋 Use `/help` to see this menu again"
                 }
             }
@@ -404,6 +411,111 @@ app.command('/help', async ({ command, ack, respond }) => {
 });
 
 // /connect command
+// /intro command
+app.command('/intro', async ({ command, ack, respond }) => {
+    await ack();
+    
+    const introMessage = {
+        text: "👋 Welcome to KROOLO AI!",
+        blocks: [
+            {
+                type: "header",
+                text: {
+                    type: "plain_text",
+                    text: "👋 Welcome to KROOLO AI!"
+                }
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: "*🤖 What is KROOLO AI?*\nI'm your intelligent assistant for enterprise search and tool management. I help you find documents, manage connections, and work more efficiently across all your business tools."
+                }
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: "*🔗 What I Can Connect To:*\n• Email: Gmail, Outlook\n• Storage: Google Drive, Dropbox, SharePoint\n• Collaboration: Slack, Microsoft Teams\n• Project Management: Jira, Confluence, Notion, Airtable\n• Documentation: Document 360, GitHub\n• Support: Zendesk"
+                }
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: "*🚀 What I Can Do:*\n• 🔍 **Smart Search** - Find documents across all your connected tools\n• 🔗 **Tool Management** - Connect/disconnect business applications\n• 📊 **Connection Status** - Monitor your integrations\n• 💡 **Suggestions** - Get personalized document recommendations\n• 📈 **Trending Content** - Discover popular documents in your org"
+                }
+            },
+            {
+                type: "divider"
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: "*🎯 Quick Start:*\n1. Connect your tools: `/connect` or \"@KROOLO AI connect to Gmail\"\n2. Search your content: `/find project reports` or \"@KROOLO AI find budget documents\"\n3. Check your connections: `/tool_status`\n4. Get help anytime: `/help`"
+                }
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: "*💬 Two Ways to Interact:*\n🚀 **Quick Commands** - Use slash commands like `/find`, `/connect`\n🧠 **Natural Language** - Just mention me: \"@KROOLO AI help me find meeting notes from last week\""
+                }
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: "Ready to get started? Try `/connect` to link your first tool! 🎉"
+                }
+            }
+        ]
+    };
+    
+    await respond(introMessage);
+});
+
+// /history command (for recent searches)
+app.command('/history', async ({ command, ack, respond, client }) => {
+    await ack();
+    
+    try {
+        // Get user info
+        let userInfo = null;
+        try {
+            userInfo = await client.users.info({ user: command.user_id });
+        } catch (error) {
+            console.log('⚠️ Could not get user info for history command:', error.message);
+        }
+
+        const userContext = {
+            slackUserId: command.user_id,
+            slackEmail: userInfo?.user?.profile?.email || null
+        };
+        
+        const result = await queryHandler.processSlashCommand('recent_searches', '', userContext);
+        
+        if (result.error) {
+            await respond(`❌ ${result.error}`);
+        } else if (result.data) {
+            // Format recent searches results
+            const formattedResponse = formatResponse(result.data, result.apiUsed);
+            await respond({
+                text: `📋 Your Recent Searches`,
+                blocks: formattedResponse
+            });
+        } else {
+            await respond(result.message || result.text || 'Recent searches retrieved.');
+        }
+        
+    } catch (error) {
+        await respond({
+            text: `❌ Failed to get search history: ${error.message}\n\nTry `/help` for more information.`
+        });
+    }
+});
+
 app.command('/connect', async ({ command, ack, respond, client }) => {
     await ack();
     

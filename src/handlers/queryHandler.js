@@ -243,32 +243,112 @@ async processSlashCommand(commandName, commandText, userContext) {
                     );
                 }
 
+          case 'connect':
+                if (!commandText.trim()) {
+                    // Show all tools
+                    return await connectToolsHandler.handleConnectToolsCommand(
+                        userContext.slackUserId,
+                        userContext.slackEmail
+                    );
+                } else {
+                    // Connect specific tool
+                    const tool = commandText.trim().toLowerCase();
+                    return await connectToolsHandler.handleDirectToolConnection(
+                        userContext.slackUserId,
+                        tool,
+                        userContext.slackEmail
+                    );
+                }
+
             case 'search':
-    
-    const searchParams = {
-        query: commandText.trim(),
-        apps: ['gmail', 'google_drive', 'slack', 'dropbox', 'jira', 'zendesk']
-    };
-    const searchStartTime = Date.now();
-    const searchResponse = await apiService.callAPI(
-        'search',
-        searchParams,
-        userContext.slackUserId,
-        userContext.slackEmail
-    );
-    const searchDuration = Date.now() - searchStartTime;
-    // Use legacy formatting for consistency
-    return this.formatLegacyApiResponse(
-        searchResponse,
-        'search',
-        searchParams,
-        searchDuration,
-        {
-            confidence: 1,
-            provider: 'slash_command',
-            reasoning: 'Direct slash command search'
-        }
-    );
+                console.log('🔍 Executing slash command search');
+                const searchStartTime = Date.now();
+                
+                // Parse the search query to extract tool-specific searches
+                const searchText = commandText.trim();
+                let searchParams;
+                
+                // Check if user specified a specific tool (like "find slack" or "find reports in gmail")
+                const toolKeywords = ['slack', 'gmail', 'drive', 'google_drive', 'jira', 'dropbox', 'zendesk'];
+                const foundTool = toolKeywords.find(tool => searchText.toLowerCase().includes(tool));
+                
+                if (foundTool) {
+                    // Tool-specific search - format like NLP does
+                    let cleanQuery = searchText.replace(new RegExp(foundTool, 'gi'), '').trim();
+                    if (!cleanQuery) cleanQuery = '*'; // Search all if no specific query
+                    
+                    searchParams = {
+                        query: cleanQuery,
+                        [foundTool]: true // This matches how NLP formats tool-specific searches
+                    };
+                    
+                    console.log(`🎯 Tool-specific search detected: ${foundTool}`);
+                    console.log('📋 Search params:', searchParams);
+                } else {
+                    // General search across all tools
+                    searchParams = {
+                        query: searchText,
+                        gmail: true,
+                        google_drive: true,
+                        slack: true,
+                        dropbox: true,
+                        jira: true,
+                        zendesk: true
+                    };
+                }
+                
+                try {
+                    const searchResponse = await apiService.callAPI(
+                        'search',
+                        searchParams,
+                        userContext.slackUserId,
+                        userContext.slackEmail
+                    );
+                    
+                    const searchDuration = Date.now() - searchStartTime;
+                    
+                    // Return in legacy format for consistent formatting
+                    return this.formatLegacyApiResponse(
+                        searchResponse, 
+                        'search', 
+                        searchParams, 
+                        searchDuration, 
+                        { confidence: 1.0, provider: 'slash_command', reasoning: 'Direct slash command search' }
+                    );
+                } catch (apiError) {
+                    console.error('❌ Search API Error:', apiError);
+                    return {
+                        error: `Search failed: ${apiError.message || 'Unknown API error'}`
+                    };
+                }
+
+            case 'recent_searches':
+                console.log('📋 Executing recent searches API call');
+                const recentStartTime = Date.now();
+                
+                try {
+                    const recentResponse = await apiService.callAPI(
+                        'recent-searches',
+                        {}, // No additional parameters needed
+                        userContext.slackUserId,
+                        userContext.slackEmail
+                    );
+                    
+                    const recentDuration = Date.now() - recentStartTime;
+                    
+                    return this.formatLegacyApiResponse(
+                        recentResponse,
+                        'recent-searches',
+                        {},
+                        recentDuration,
+                        { confidence: 1.0, provider: 'slash_command', reasoning: 'Recent searches via slash command' }
+                    );
+                } catch (apiError) {
+                    console.error('❌ Recent Searches API Error:', apiError);
+                    return {
+                        error: `Failed to get recent searches: ${apiError.message || 'Unknown API error'}`
+                    };
+                }
 
             case 'status':
                 const tool = commandText.trim().toLowerCase();
