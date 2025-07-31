@@ -244,18 +244,31 @@ async processSlashCommand(commandName, commandText, userContext) {
                 }
 
             case 'search':
-                const apiService = require('../services/apiService');
-                const searchParams = {
-                    query: commandText.trim(),
-                    apps: ['gmail', 'google_drive', 'slack', 'dropbox', 'jira', 'zendesk']
-                };
-                
-                return await apiService.callAPI(
-                    'search',
-                    searchParams,
-                    userContext.slackUserId,
-                    userContext.slackEmail
-                );
+    
+    const searchParams = {
+        query: commandText.trim(),
+        apps: ['gmail', 'google_drive', 'slack', 'dropbox', 'jira', 'zendesk']
+    };
+    const searchStartTime = Date.now();
+    const searchResponse = await apiService.callAPI(
+        'search',
+        searchParams,
+        userContext.slackUserId,
+        userContext.slackEmail
+    );
+    const searchDuration = Date.now() - searchStartTime;
+    // Use legacy formatting for consistency
+    return this.formatLegacyApiResponse(
+        searchResponse,
+        'search',
+        searchParams,
+        searchDuration,
+        {
+            confidence: 1,
+            provider: 'slash_command',
+            reasoning: 'Direct slash command search'
+        }
+    );
 
             case 'status':
                 const tool = commandText.trim().toLowerCase();
